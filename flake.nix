@@ -125,12 +125,12 @@
             };
           };
 
-          config = lib.mkIf cfg.enable {
-            environment.systemPackages = [ cfg.package ];
-          };
-
-          config = lib.mkIf svc.enable {
-            systemd.user.services.interlude = {
+          config = lib.mkMerge [
+            (lib.mkIf cfg.enable {
+              environment.systemPackages = [ cfg.package ];
+            })
+            (lib.mkIf svc.enable {
+              systemd.user.services.interlude = {
               description = "Interlude wellness break overlay";
               wantedBy = [ "graphical-session.target" ];
               after = [ "graphical-session.target" ];
@@ -153,8 +153,9 @@
                   "${svc.package}/bin/interlude ${lib.escapeShellArgs args}";
                 Restart = "on-failure";
               };
-            };
-          };
+              };
+            })
+          ];
         };
     };
 }
