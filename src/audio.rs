@@ -1,5 +1,5 @@
 use ogg::PacketReader;
-use opus::{Decoder as OpusDecoder, Channels};
+use opus::{Channels, Decoder as OpusDecoder};
 use rodio::{OutputStream, OutputStreamHandle, Sink};
 use std::io::Cursor;
 

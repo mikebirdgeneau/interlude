@@ -1,15 +1,16 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use crossbeam_channel::Sender;
 use rustix::fd::IntoRawFd;
 use std::os::fd::{AsFd, FromRawFd};
 
 use wayland_client::{
+    Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
+    backend::WaylandError,
     protocol::{
         wl_buffer, wl_buffer::WlBuffer, wl_compositor::WlCompositor, wl_keyboard, wl_output,
         wl_output::WlOutput, wl_pointer, wl_region::WlRegion, wl_registry, wl_seat::WlSeat,
         wl_shm::WlShm, wl_shm_pool::WlShmPool, wl_surface::WlSurface,
     },
-    backend::WaylandError, Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum,
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_shell_v1::{Layer, ZwlrLayerShellV1},
@@ -18,9 +19,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 
 use xkbcommon::xkb;
 
-use crate::tiny_font::{
-    draw_text_rgba_size, line_ascent_size, line_height_size, text_width_size,
-};
+use crate::tiny_font::{draw_text_rgba_size, line_ascent_size, line_height_size, text_width_size};
 use std::time::{Duration, Instant};
 
 use resvg::tiny_skia::{Pixmap, Transform};
@@ -67,6 +66,8 @@ struct SurfaceCtx {
     height: u32,
     input_region: Option<WlRegion>,
     icon: Option<Icon>,
+    small_icon: Option<Icon>,
+    small_icon_size: u32,
 
     // SHM objects (recreated on resize/configure)
     shm_pool: Option<WlShmPool>,
@@ -159,10 +160,8 @@ fn draw_icon_rgba(
             let inv = 255u16.saturating_sub(alpha as u16);
             let a = alpha as u16;
             buf[dst_idx] = ((tint[0] as u16 * a + buf[dst_idx] as u16 * inv) / 255) as u8;
-            buf[dst_idx + 1] =
-                ((tint[1] as u16 * a + buf[dst_idx + 1] as u16 * inv) / 255) as u8;
-            buf[dst_idx + 2] =
-                ((tint[2] as u16 * a + buf[dst_idx + 2] as u16 * inv) / 255) as u8;
+            buf[dst_idx + 1] = ((tint[1] as u16 * a + buf[dst_idx + 1] as u16 * inv) / 255) as u8;
+            buf[dst_idx + 2] = ((tint[2] as u16 * a + buf[dst_idx + 2] as u16 * inv) / 255) as u8;
             buf[dst_idx + 3] = 255;
         }
     }
@@ -309,16 +308,16 @@ impl Locker {
                     (Instant::now() - start).as_secs_f32() / FADE_IN_DURATION.as_secs_f32();
                 let p = progress.clamp(0.0, 1.0);
                 let alpha = (self.state.max_alpha as f32 * p).round() as u8;
-                let text_start = 1.0
-                    - (TEXT_FADE_IN_WINDOW.as_secs_f32() / FADE_IN_DURATION.as_secs_f32());
+                let text_start =
+                    1.0 - (TEXT_FADE_IN_WINDOW.as_secs_f32() / FADE_IN_DURATION.as_secs_f32());
                 let text_progress = if p <= text_start {
                     0.0
                 } else {
                     (p - text_start) / (1.0 - text_start)
                 };
-                self.state.text_alpha =
-                    (self.state.colors.foreground[3] as f32 * text_progress.clamp(0.0, 1.0))
-                        .round() as u8;
+                self.state.text_alpha = (self.state.colors.foreground[3] as f32
+                    * text_progress.clamp(0.0, 1.0))
+                .round() as u8;
                 (alpha, p >= 1.0, false)
             }
             FadeState::Out { start } => {
@@ -326,9 +325,8 @@ impl Locker {
                     (Instant::now() - start).as_secs_f32() / FADE_OUT_DURATION.as_secs_f32();
                 let p = progress.clamp(0.0, 1.0);
                 let alpha = (self.state.max_alpha as f32 * (1.0 - p)).round() as u8;
-                self.state.text_alpha =
-                    ((self.state.colors.foreground[3] as u16 * alpha as u16)
-                        / self.state.max_alpha as u16) as u8;
+                self.state.text_alpha = ((self.state.colors.foreground[3] as u16 * alpha as u16)
+                    / self.state.max_alpha as u16) as u8;
                 (alpha, p >= 1.0, true)
             }
         };
@@ -374,7 +372,9 @@ impl Locker {
         let qh = self.event_queue.handle();
 
         for surface in self.state.surfaces.iter_mut() {
-            surface.layer_surface.set_keyboard_interactivity(interactivity);
+            surface
+                .layer_surface
+                .set_keyboard_interactivity(interactivity);
             if enable {
                 surface.wl_surface.set_input_region(None);
                 surface.input_region = None;
@@ -449,6 +449,8 @@ impl Locker {
                 height: h,
                 input_region,
                 icon: None,
+                small_icon: None,
+                small_icon_size: 0,
                 shm_pool: None,
                 buffer: None,
                 shm_bytes: vec![],
@@ -489,10 +491,8 @@ impl Locker {
             None => return Ok(()),
         };
 
-        let (w, h) = {
-            let s = &self.state.surfaces[idx];
-            (s.width, s.height)
-        };
+        let s = &mut self.state.surfaces[idx];
+        let (w, h) = (s.width, s.height);
 
         if w == 0 || h == 0 {
             return Ok(());
@@ -500,20 +500,6 @@ impl Locker {
 
         let stride = (w as i32) * 4;
         let size = (stride as usize) * (h as usize);
-
-        // Allocate a simple RGBA buffer
-        let mut bytes = vec![0u8; size];
-
-        // Dim background: mostly opaque black
-        let bg_alpha = 255;
-        for px in bytes.chunks_exact_mut(4) {
-            px.copy_from_slice(&[
-                self.state.colors.background[0],
-                self.state.colors.background[1],
-                self.state.colors.background[2],
-                bg_alpha,
-            ]);
-        }
 
         let white = [
             self.state.colors.foreground[0],
@@ -593,29 +579,49 @@ impl Locker {
             size
         };
 
-        if self.state.surfaces[idx]
+        let needs_icon = s
             .icon
             .as_ref()
             .map(|icon| icon.width != icon_size)
-            .unwrap_or(true)
-        {
+            .unwrap_or(true);
+        if needs_icon {
             if let Some(tree) = &self.state.icon_tree {
-                self.state.surfaces[idx].icon = render_icon(tree, icon_size);
+                s.icon = render_icon(tree, icon_size);
             }
         }
 
-        let icon_height = self.state.surfaces[idx]
-            .icon
-            .as_ref()
-            .map(|icon| icon.height as i32)
-            .unwrap_or(0);
+        let icon = s.icon.as_ref();
+        let icon_height = icon.map(|icon| icon.height as i32).unwrap_or(0);
 
-        let text_height: i32 = lines
-            .iter()
-            .map(|line| line_height_size(line.size))
-            .sum();
-        let total_height =
-            icon_height + if icon_height > 0 { ICON_GAP } else { 0 } + text_height;
+        let small_icon = if matches!(self.state.fade, FadeState::In { .. }) {
+            let small_size = (icon_size / 3).max(24);
+            let needs_icon = s.small_icon_size != small_size || s.small_icon.is_none();
+            if needs_icon {
+                if let Some(tree) = &self.state.icon_tree {
+                    s.small_icon = render_icon(tree, small_size);
+                    s.small_icon_size = small_size;
+                }
+            }
+            s.small_icon.as_ref()
+        } else {
+            None
+        };
+
+        // Dim background: mostly opaque black
+        let bg_alpha = 255;
+        let bytes = &mut s.shm_bytes;
+        bytes.resize(size, 0u8);
+        for px in bytes.chunks_exact_mut(4) {
+            px.copy_from_slice(&[
+                self.state.colors.background[0],
+                self.state.colors.background[1],
+                self.state.colors.background[2],
+                bg_alpha,
+            ]);
+        }
+
+        let text_height: i32 = lines.iter().map(|line| line_height_size(line.size)).sum();
+        let total_height = icon_height + if icon_height > 0 { ICON_GAP } else { 0 } + text_height;
         let base_y = ((h as i32 - total_height) / 2).max(0);
 
         let tint = [
@@ -624,10 +630,19 @@ impl Locker {
             self.state.colors.foreground[2],
         ];
 
-        if let Some(icon) = &self.state.surfaces[idx].icon {
+        if let Some(icon) = icon {
             let icon_x = ((w as i32 - icon.width as i32) / 2).max(0);
             if self.state.text_alpha > 0 {
-                draw_icon_rgba(&mut bytes, w, h, icon_x, base_y, icon, tint, self.state.text_alpha);
+                draw_icon_rgba(
+                    bytes,
+                    w,
+                    h,
+                    icon_x,
+                    base_y,
+                    icon,
+                    tint,
+                    self.state.text_alpha,
+                );
             }
         }
 
@@ -640,7 +655,7 @@ impl Locker {
             let alpha = ((self.state.text_alpha as f32) * line.alpha).round() as u8;
             let rgba = [white[0], white[1], white[2], alpha];
             draw_text_rgba_size(
-                &mut bytes,
+                bytes,
                 w,
                 h,
                 base_x,
@@ -652,15 +667,11 @@ impl Locker {
             line_y += line_height_size(line.size);
         }
 
-        if matches!(self.state.fade, FadeState::In { .. }) {
-            let small_size = (icon_size / 3).max(24);
-            let small_icon = self.state.icon_tree.as_ref().and_then(|tree| render_icon(tree, small_size));
-            if let Some(icon) = small_icon {
-                let pad = 20;
-                let x = w as i32 - icon.width as i32 - pad;
-                let y = h as i32 - icon.height as i32 - pad;
-                draw_icon_rgba(&mut bytes, w, h, x, y, &icon, tint, 255);
-            }
+        if let Some(icon) = small_icon {
+            let pad = 20;
+            let x = w as i32 - icon.width as i32 - pad;
+            let y = h as i32 - icon.height as i32 - pad;
+            draw_icon_rgba(bytes, w, h, x, y, icon, tint, 255);
         }
 
         let fade = self.state.overlay_alpha as u16;
@@ -680,8 +691,8 @@ impl Locker {
         let file = unsafe { std::fs::File::from_raw_fd(raw_fd) };
 
         // mmap and copy bytes
-        let mut map = unsafe { memmap2::MmapMut::map_mut(&file) }
-            .map_err(|e| anyhow!("mmap: {e}"))?;
+        let mut map =
+            unsafe { memmap2::MmapMut::map_mut(&file) }.map_err(|e| anyhow!("mmap: {e}"))?;
         map[..].copy_from_slice(&bytes);
         map.flush().ok();
 
@@ -700,7 +711,6 @@ impl Locker {
             let s = &mut self.state.surfaces[idx];
             s.shm_pool = Some(pool);
             s.buffer = Some(buffer.clone());
-            s.shm_bytes = bytes;
             s.stride = stride;
         }
 
@@ -868,32 +878,34 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
         qh: &QueueHandle<Self>,
     ) {
         match event {
-            wl_registry::Event::Global { name, interface, version } => {
-                match interface.as_str() {
-                    "wl_compositor" if state.compositor.is_none() => {
-                        let ver = version.min(WlCompositor::interface().version);
-                        state.compositor = Some(proxy.bind(name, ver, qh, ()));
-                    }
-                    "wl_shm" if state.shm.is_none() => {
-                        let ver = version.min(WlShm::interface().version);
-                        state.shm = Some(proxy.bind(name, ver, qh, ()));
-                    }
-                    "wl_seat" if state.seat.is_none() => {
-                        let ver = version.min(WlSeat::interface().version);
-                        state.seat = Some(proxy.bind(name, ver, qh, ()));
-                    }
-                    "wl_output" => {
-                        let ver = version.min(WlOutput::interface().version);
-                        let out = proxy.bind(name, ver, qh, ());
-                        state.outputs.push(out);
-                    }
-                    "zwlr_layer_shell_v1" if state.layer_shell.is_none() => {
-                        let ver = version.min(ZwlrLayerShellV1::interface().version);
-                        state.layer_shell = Some(proxy.bind(name, ver, qh, ()));
-                    }
-                    _ => {}
+            wl_registry::Event::Global {
+                name,
+                interface,
+                version,
+            } => match interface.as_str() {
+                "wl_compositor" if state.compositor.is_none() => {
+                    let ver = version.min(WlCompositor::interface().version);
+                    state.compositor = Some(proxy.bind(name, ver, qh, ()));
                 }
-            }
+                "wl_shm" if state.shm.is_none() => {
+                    let ver = version.min(WlShm::interface().version);
+                    state.shm = Some(proxy.bind(name, ver, qh, ()));
+                }
+                "wl_seat" if state.seat.is_none() => {
+                    let ver = version.min(WlSeat::interface().version);
+                    state.seat = Some(proxy.bind(name, ver, qh, ()));
+                }
+                "wl_output" => {
+                    let ver = version.min(WlOutput::interface().version);
+                    let out = proxy.bind(name, ver, qh, ());
+                    state.outputs.push(out);
+                }
+                "zwlr_layer_shell_v1" if state.layer_shell.is_none() => {
+                    let ver = version.min(ZwlrLayerShellV1::interface().version);
+                    state.layer_shell = Some(proxy.bind(name, ver, qh, ()));
+                }
+                _ => {}
+            },
             wl_registry::Event::GlobalRemove { .. } => {}
             _ => {}
         }
@@ -985,11 +997,15 @@ impl Dispatch<WlSeat, ()> for State {
         match event {
             wayland_client::protocol::wl_seat::Event::Capabilities { capabilities } => {
                 let has_keyboard = match capabilities {
-                    WEnum::Value(caps) => caps.contains(wayland_client::protocol::wl_seat::Capability::Keyboard),
+                    WEnum::Value(caps) => {
+                        caps.contains(wayland_client::protocol::wl_seat::Capability::Keyboard)
+                    }
                     WEnum::Unknown(_) => false,
                 };
                 let has_pointer = match capabilities {
-                    WEnum::Value(caps) => caps.contains(wayland_client::protocol::wl_seat::Capability::Pointer),
+                    WEnum::Value(caps) => {
+                        caps.contains(wayland_client::protocol::wl_seat::Capability::Pointer)
+                    }
                     WEnum::Unknown(_) => false,
                 };
 
@@ -1050,7 +1066,9 @@ impl Dispatch<wl_pointer::WlPointer, ()> for State {
         _qh: &QueueHandle<Self>,
     ) {
         match event {
-            wl_pointer::Event::Button { state: btn_state, .. } => {
+            wl_pointer::Event::Button {
+                state: btn_state, ..
+            } => {
                 if btn_state == WEnum::Value(wl_pointer::ButtonState::Pressed) {
                     let _ = state.tx_ui.send(UiEvent::PointerClick);
                 }

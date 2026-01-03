@@ -38,8 +38,9 @@ impl Scheduler {
     }
 
     pub fn tick(&mut self) {
+        let now = Instant::now();
         if let Some(dl) = self.deadline {
-            if Instant::now() >= dl {
+            if now >= dl {
                 match self.phase {
                     Phase::Working => {
                         self.phase = Phase::LockedAwaitingAction;
@@ -89,7 +90,6 @@ impl Scheduler {
         self.deadline = Some(Instant::now() + self.cfg.interval);
         self.snooze_count = 0;
     }
-
 
     pub fn snooze(&mut self) -> Duration {
         let d = self.snooze_duration();

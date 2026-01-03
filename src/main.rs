@@ -1,25 +1,17 @@
 use anyhow::Result;
 use clap::Parser;
-use crossbeam_channel::{Receiver, unbounded};
+use crossbeam_channel::unbounded;
 
-mod cli;
 mod audio;
+mod cli;
 mod scheduler;
 mod tiny_font;
 mod wayland_lock;
 
+use audio::Audio;
 use cli::Cli;
 use scheduler::{Config, Phase, Scheduler};
 use wayland_lock::{Locker, UiColors, UiEvent, UiMode};
-use audio::Audio;
-
-fn recv_all(rx: &Receiver<UiEvent>) -> Vec<UiEvent> {
-    let mut out = Vec::new();
-    while let Ok(ev) = rx.try_recv() {
-        out.push(ev);
-    }
-    out
-}
 
 fn fmt_duration(d: std::time::Duration) -> String {
     let secs = d.as_secs();
@@ -66,7 +58,7 @@ fn main() -> Result<()> {
 
         // Handle key events
         if !locker.is_fading() {
-            for ev in recv_all(&rx_ui) {
+            for ev in rx_ui.try_iter() {
                 match (sched.phase, ev) {
                     (Phase::LockedAwaitingAction, UiEvent::PressZ)
                     | (Phase::OnBreak, UiEvent::PressZ) => {
@@ -89,14 +81,10 @@ fn main() -> Result<()> {
             }
         }
 
-        // Ensure lock/unlock based on phase
-        match sched.phase {
-            Phase::Working | Phase::Snoozing => {}
-            Phase::LockedAwaitingAction | Phase::OnBreak | Phase::BreakFinished => {}
-        }
-
-        if matches!(sched.phase, Phase::LockedAwaitingAction | Phase::OnBreak | Phase::BreakFinished)
-            && !locker.is_locked()
+        if matches!(
+            sched.phase,
+            Phase::LockedAwaitingAction | Phase::OnBreak | Phase::BreakFinished
+        ) && !locker.is_locked()
         {
             locker.lock()?;
         }

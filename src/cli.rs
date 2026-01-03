@@ -36,6 +36,6 @@ pub struct Cli {
     pub background: String,
 
     /// Foreground text/icon color in hex (#RGB, #RRGGBB, or #RRGGBBAA)
-    #[arg(long, default_value = "#FFFFFDD")]
+    #[arg(long, default_value = "#FFFFFDDD")]
     pub foreground: String,
 }
