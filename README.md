@@ -25,6 +25,39 @@ Interlude encourages sustainable focus through recurring, short wellness breaks.
 - `cargo build --release` builds optimized binaries.
 - `cargo fmt` and `cargo clippy -- -D warnings` keep style and linting clean.
 
+## NixOS (flake)
+Example system config with the user service:
+```nix
+{
+  inputs.interlude.url = "path:/home/mjbirdge/Documents/rust/interlude";
+
+  outputs = { self, nixpkgs, interlude, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        interlude.nixosModules.default
+        ({ ... }: {
+          services.interlude = {
+            enable = true;
+            settings = {
+              interval_minutes = 30;
+              break_seconds = 180;
+              snooze_base_seconds = 300;
+              snooze_decay = 0.6;
+              snooze_min_seconds = 30;
+              max_snoozes = 0;
+              immediate = false;
+              background = "#000000CC";
+              foreground = "#FFFFFDD";
+            };
+          };
+        })
+      ];
+    };
+  };
+}
+```
+
 ## Assets and Audio
 - Fonts, SVGs, and audio cues are embedded in the binary via `include_bytes!`.
 - Audio playback is in-process (rodio) using Opus assets; build environments need ALSA and Opus development headers plus `pkg-config` (see `devenv.nix`).
