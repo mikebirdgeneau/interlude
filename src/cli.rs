@@ -8,7 +8,7 @@ pub struct Cli {
     pub interval_minutes: u64,
 
     /// Break duration in seconds
-    #[arg(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 180)]
     pub break_seconds: u64,
 
     /// Initial snooze duration in seconds (shrinks each snooze)
@@ -26,5 +26,16 @@ pub struct Cli {
     /// Optional: after N snoozes in a cycle, disable snooze (0 = unlimited)
     #[arg(long, default_value_t = 0)]
     pub max_snoozes: u32,
-}
 
+    /// Immediately start a break sequence (for testing)
+    #[arg(long, default_value_t = false)]
+    pub immediate: bool,
+
+    /// Background overlay color in hex (#RGB, #RRGGBB, or #RRGGBBAA)
+    #[arg(long, default_value = "#000000CC")]
+    pub background: String,
+
+    /// Foreground text/icon color in hex (#RGB, #RRGGBB, or #RRGGBBAA)
+    #[arg(long, default_value = "#FFFFFDD")]
+    pub foreground: String,
+}

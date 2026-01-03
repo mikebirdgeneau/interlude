@@ -90,6 +90,7 @@ impl Scheduler {
         self.snooze_count = 0;
     }
 
+
     pub fn snooze(&mut self) -> Duration {
         let d = self.snooze_duration();
         self.snooze_count = self.snooze_count.saturating_add(1);
@@ -99,3 +100,67 @@ impl Scheduler {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_cfg() -> Config {
+        Config {
+            interval: Duration::from_secs(10),
+            break_len: Duration::from_secs(5),
+            snooze_base: Duration::from_secs(100),
+            snooze_decay: 0.5,
+            snooze_min: Duration::from_secs(30),
+            max_snoozes: Some(2),
+        }
+    }
+
+    #[test]
+    fn tick_transitions_working_to_locked() {
+        let mut sched = Scheduler::new(test_cfg());
+        sched.deadline = Some(Instant::now() - Duration::from_secs(1));
+        sched.tick();
+        assert_eq!(sched.phase, Phase::LockedAwaitingAction);
+        assert!(sched.deadline.is_none());
+    }
+
+    #[test]
+    fn tick_transitions_on_break_to_finished() {
+        let mut sched = Scheduler::new(test_cfg());
+        sched.start_break();
+        sched.deadline = Some(Instant::now() - Duration::from_secs(1));
+        sched.tick();
+        assert_eq!(sched.phase, Phase::BreakFinished);
+        assert!(sched.deadline.is_none());
+    }
+
+    #[test]
+    fn snooze_duration_decays_with_floor() {
+        let mut sched = Scheduler::new(test_cfg());
+        sched.snooze_count = 0;
+        assert_eq!(sched.snooze_duration().as_secs(), 100);
+        sched.snooze_count = 1;
+        assert_eq!(sched.snooze_duration().as_secs(), 50);
+        sched.snooze_count = 2;
+        assert_eq!(sched.snooze_duration().as_secs(), 30);
+    }
+
+    #[test]
+    fn snooze_resets_after_finish() {
+        let mut sched = Scheduler::new(test_cfg());
+        let _ = sched.snooze();
+        assert_eq!(sched.snooze_count, 1);
+        sched.finish_and_restart();
+        assert_eq!(sched.snooze_count, 0);
+        assert_eq!(sched.phase, Phase::Working);
+    }
+
+    #[test]
+    fn can_snooze_respects_max() {
+        let mut sched = Scheduler::new(test_cfg());
+        assert!(sched.can_snooze());
+        let _ = sched.snooze();
+        let _ = sched.snooze();
+        assert!(!sched.can_snooze());
+    }
+}

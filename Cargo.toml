@@ -7,8 +7,13 @@ edition = "2024"
 anyhow = "1.0.100"
 clap = { version = "4.5.54", features = ["derive"] }
 crossbeam-channel = "0.5.15"
+fontdue = "0.8.0"
 memmap2 = "0.9.9"
+ogg = "0.8.0"
+opus = "0.3.0"
+resvg = "0.37.0"
+rodio = "0.19.0"
 rustix = { version = "1.1.3", features = ["fs", "mm"] }
 wayland-client = "0.31.12"
-wayland-protocols = { version = "0.32.10", features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 xkbcommon = "0.9.0"

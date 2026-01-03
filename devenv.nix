@@ -5,10 +5,26 @@
   env.GREET = "devenv";
 
   # https://devenv.sh/packages/
-  packages = [ pkgs.git ];
+  packages = [ 
+    pkgs.git
+    pkgs.libxkbcommon
+    pkgs.wayland
+    pkgs.alsa-lib
+    pkgs.libopus
+    pkgs.pkg-config
+  ];
 
   # https://devenv.sh/languages/
   languages.rust.enable = true;
+
+  env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+    pkgs.libxkbcommon
+    pkgs.wayland
+    pkgs.alsa-lib
+    pkgs.libopus
+    #pkgs.vulkan-loader
+    #pkgs.udev
+  ];
 
   # https://devenv.sh/processes/
   # processes.dev.exec = "${lib.getExe pkgs.watchexec} -n -- ls -la";
