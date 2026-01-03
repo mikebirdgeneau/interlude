@@ -1,4 +1,48 @@
-pub fn draw_text_rgba(
+use fontdue::Font;
+use std::sync::OnceLock;
+
+const FONT_DATA: &[u8] = include_bytes!("../assets/fonts/InterVariable.ttf");
+fn font() -> &'static Font {
+    static FONT: OnceLock<Font> = OnceLock::new();
+    FONT.get_or_init(|| {
+        Font::from_bytes(FONT_DATA, fontdue::FontSettings::default())
+            .expect("Failed to load embedded Inter font")
+    })
+}
+
+pub fn line_height_size(size: f32) -> i32 {
+    let font = font();
+    if let Some(metrics) = font.horizontal_line_metrics(size) {
+        (metrics.ascent - metrics.descent + metrics.line_gap).round() as i32
+    } else {
+        (size * 1.3).round() as i32
+    }
+}
+
+pub fn line_ascent_size(size: f32) -> i32 {
+    let font = font();
+    font.horizontal_line_metrics(size)
+        .map(|metrics| {
+            let leading = (metrics.line_gap / 2.0).round() as i32;
+            metrics.ascent.round() as i32 + leading
+        })
+        .unwrap_or(size.round() as i32)
+}
+
+pub fn text_width_size(text: &str, size: f32) -> i32 {
+    let font = font();
+    let mut width = 0i32;
+    for ch in text.chars() {
+        if ch == '\n' {
+            break;
+        }
+        let (metrics, _) = font.rasterize(ch, size);
+        width += metrics.advance_width.round() as i32;
+    }
+    width
+}
+
+pub fn draw_text_rgba_size(
     buf: &mut [u8],
     width: u32,
     height: u32,
@@ -6,69 +50,50 @@ pub fn draw_text_rgba(
     y: i32,
     text: &str,
     rgba: [u8; 4],
+    size: f32,
 ) {
-    let mut cx = x;
+    let font = font();
+    let mut pen_x = x;
+    let mut pen_y = y;
+
     for ch in text.chars() {
-        draw_char(buf, width, height, cx, y, ch, rgba);
-        cx += 6;
-    }
-}
+        if ch == '\n' {
+            pen_x = x;
+            pen_y += line_height_size(size);
+            continue;
+        }
 
-fn glyph(ch: char) -> [u8; 7] {
-    match ch {
-        '0' => [0x1E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x1E],
-        '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
-        '2' => [0x1E, 0x11, 0x01, 0x0E, 0x10, 0x10, 0x1F],
-        '3' => [0x1E, 0x11, 0x01, 0x0E, 0x01, 0x11, 0x1E],
-        '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
-        '5' => [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x1E],
-        '6' => [0x0E, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x0E],
-        '7' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
-        '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
-        '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x1C],
-        ':' => [0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00],
-        'A' => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
-        'B' => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
-        'C' => [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
-        'D' => [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
-        'E' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
-        'F' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
-        'I' => [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
-        'L' => [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
-        'N' => [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
-        'O' => [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-        'P' => [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
-        'R' => [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
-        'S' => [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E],
-        'T' => [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
-        'U' => [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
-        'Z' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
-        ' ' => [0, 0, 0, 0, 0, 0, 0],
-        _ => [0, 0, 0, 0, 0, 0, 0],
-    }
-}
+        let (metrics, bitmap) = font.rasterize(ch, size);
+        let glyph_x = pen_x + metrics.xmin;
+        let glyph_y = pen_y - metrics.height as i32 - metrics.ymin;
 
-fn draw_char(
-    buf: &mut [u8],
-    width: u32,
-    height: u32,
-    x: i32,
-    y: i32,
-    ch: char,
-    rgba: [u8; 4],
-) {
-    let g = glyph(ch.to_ascii_uppercase());
-    for (row, bits) in g.iter().enumerate() {
-        for col in 0..5 {
-            if (bits >> (4 - col)) & 1 == 1 {
-                let px = x + col as i32;
-                let py = y + row as i32;
-                if px >= 0 && py >= 0 && (px as u32) < width && (py as u32) < height {
-                    let idx = ((py as u32 * width + px as u32) * 4) as usize;
-                    buf[idx..idx + 4].copy_from_slice(&rgba);
+        for row in 0..metrics.height {
+            for col in 0..metrics.width {
+                let alpha = bitmap[row * metrics.width + col];
+                if alpha == 0 {
+                    continue;
                 }
+
+                let px = glyph_x + col as i32;
+                let py = glyph_y + row as i32;
+                if px < 0 || py < 0 || (px as u32) >= width || (py as u32) >= height {
+                    continue;
+                }
+
+                let idx = ((py as u32 * width + px as u32) * 4) as usize;
+                blend_pixel(&mut buf[idx..idx + 4], rgba, alpha);
             }
         }
+
+        pen_x += metrics.advance_width.round() as i32;
     }
 }
 
+fn blend_pixel(dst: &mut [u8], rgba: [u8; 4], alpha: u8) {
+    let a = (alpha as u16 * rgba[3] as u16) / 255;
+    let inv = 255u16.saturating_sub(a);
+    dst[0] = ((rgba[0] as u16 * a + dst[0] as u16 * inv) / 255) as u8;
+    dst[1] = ((rgba[1] as u16 * a + dst[1] as u16 * inv) / 255) as u8;
+    dst[2] = ((rgba[2] as u16 * a + dst[2] as u16 * inv) / 255) as u8;
+    dst[3] = 255;
+}

@@ -9,6 +9,8 @@ devenv.local.yaml
 # pre-commit
 .pre-commit-config.yaml
 
+assets/fonts/*
+!assets/fonts/InterVariable.ttf
 
 # Added by cargo
 
