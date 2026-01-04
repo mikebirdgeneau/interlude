@@ -38,4 +38,8 @@ pub struct Cli {
     /// Foreground text/icon color in hex (#RGB, #RRGGBB, or #RRGGBBAA)
     #[arg(long, default_value = "#FFFFFDDD")]
     pub foreground: String,
+
+    /// Target FPS during fade animations (lower = less compositor load)
+    #[arg(long, default_value_t = 60)]
+    pub fade_fps: u32,
 }

@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, TreeParsing};
+use memmap2::MmapMut;
 
 #[derive(Debug, Clone, Copy)]
 pub enum UiEvent {
@@ -72,9 +73,17 @@ struct SurfaceCtx {
 
     // SHM objects (recreated on resize/configure)
     shm_pool: Option<WlShmPool>,
-    buffer: Option<WlBuffer>,
-    shm_bytes: Vec<u8>,
+    shm_file: Option<std::fs::File>,
+    shm_map: Option<MmapMut>,
+    shm_size: usize,
+    buffer_slots: Vec<BufferSlot>,
     stride: i32,
+}
+
+struct BufferSlot {
+    buffer: WlBuffer,
+    offset: usize,
+    busy: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -453,8 +462,10 @@ impl Locker {
                 small_icon: None,
                 small_icon_size: 0,
                 shm_pool: None,
-                buffer: None,
-                shm_bytes: vec![],
+                shm_file: None,
+                shm_map: None,
+                shm_size: 0,
+                buffer_slots: Vec::new(),
                 stride: (w as i32) * 4,
             });
         }
@@ -486,7 +497,6 @@ impl Locker {
     }
 
     fn redraw_surface(&mut self, idx: usize) -> Result<()> {
-        let qh = self.event_queue.handle();
         let shm = match self.state.shm.clone() {
             Some(s) => s,
             None => return Ok(()),
@@ -630,13 +640,77 @@ impl Locker {
             .map(|icon| icon.height as i32)
             .unwrap_or(0);
 
+        let qh = self.event_queue.handle();
+        let (buffer, offset) = {
+            let s = &mut self.state.surfaces[idx];
+            let shm_pool_needs_init = s.shm_pool.is_none() || s.shm_size != size || s.stride != stride;
+            if shm_pool_needs_init {
+                let fd = rustix::fs::memfd_create("interlude-frame", rustix::fs::MemfdFlags::CLOEXEC)
+                    .map_err(|e| anyhow!("memfd_create: {e}"))?;
+                let total_size = size * 2;
+                rustix::fs::ftruncate(&fd, total_size as u64).map_err(|e| anyhow!("ftruncate: {e}"))?;
+                let raw_fd = fd.into_raw_fd();
+                let file = unsafe { std::fs::File::from_raw_fd(raw_fd) };
+
+                let map = unsafe { memmap2::MmapMut::map_mut(&file) }.map_err(|e| anyhow!("mmap: {e}"))?;
+
+                let pool = shm.create_pool(file.as_fd(), total_size as i32, &qh, ());
+                let buffer_a = pool.create_buffer(
+                    0,
+                    w as i32,
+                    h as i32,
+                    stride,
+                    wayland_client::protocol::wl_shm::Format::Argb8888,
+                    &qh,
+                    (),
+                );
+                let buffer_b = pool.create_buffer(
+                    size as i32,
+                    w as i32,
+                    h as i32,
+                    stride,
+                    wayland_client::protocol::wl_shm::Format::Argb8888,
+                    &qh,
+                    (),
+                );
+
+                s.shm_pool = Some(pool);
+                s.shm_file = Some(file);
+                s.shm_map = Some(map);
+                s.shm_size = size;
+                s.buffer_slots = vec![
+                    BufferSlot {
+                        buffer: buffer_a,
+                        offset: 0,
+                        busy: false,
+                    },
+                    BufferSlot {
+                        buffer: buffer_b,
+                        offset: size,
+                        busy: false,
+                    },
+                ];
+                s.stride = stride;
+            }
+
+            let slot_idx = match s.buffer_slots.iter().position(|slot| !slot.busy) {
+                Some(idx) => idx,
+                None => return Ok(()),
+            };
+            s.buffer_slots[slot_idx].busy = true;
+            let buffer = s.buffer_slots[slot_idx].buffer.clone();
+            let offset = s.buffer_slots[slot_idx].offset;
+            (buffer, offset)
+        };
+
+        let bytes = {
+            let s = &mut self.state.surfaces[idx];
+            let map = s.shm_map.as_mut().ok_or_else(|| anyhow!("missing shm map"))?;
+            &mut map[offset..offset + size]
+        };
+
         // Dim background: mostly opaque black
         let bg_alpha = 255;
-        let mut bytes = {
-            let s = &mut self.state.surfaces[idx];
-            s.shm_bytes.resize(size, 0u8);
-            std::mem::take(&mut s.shm_bytes)
-        };
         for px in bytes.chunks_exact_mut(4) {
             px.copy_from_slice(&[
                 self.state.colors.background[0],
@@ -659,7 +733,7 @@ impl Locker {
         if let Some(icon) = icon.as_ref() {
             let icon_x = ((w as i32 - icon.width as i32) / 2).max(0);
             if self.state.text_alpha > 0 {
-                draw_icon_rgba(&mut bytes, w, h, icon_x, base_y, icon, tint, self.state.text_alpha);
+                draw_icon_rgba(bytes, w, h, icon_x, base_y, icon, tint, self.state.text_alpha);
             }
         }
 
@@ -686,7 +760,7 @@ impl Locker {
             };
             let alpha = ((self.state.text_alpha as f32) * line.alpha).round() as u8;
             let rgba = [white[0], white[1], white[2], alpha];
-            draw_text_rgba_size(&mut bytes, w, h, base_x, line_y + ascent, &line.text, rgba, line.size);
+            draw_text_rgba_size(bytes, w, h, base_x, line_y + ascent, &line.text, rgba, line.size);
             line_y += line_height_size(line.size);
         }
 
@@ -694,7 +768,7 @@ impl Locker {
             let pad = 20;
             let x = w as i32 - icon.width as i32 - pad;
             let y = h as i32 - icon.height as i32 - pad;
-            draw_icon_rgba(&mut bytes, w, h, x, y, icon, tint, 255);
+            draw_icon_rgba(bytes, w, h, x, y, icon, tint, 255);
         }
 
         let fade = self.state.overlay_alpha as u16;
@@ -703,39 +777,6 @@ impl Locker {
             px[1] = ((px[1] as u16 * fade) / 255) as u8;
             px[2] = ((px[2] as u16 * fade) / 255) as u8;
             px[3] = fade as u8;
-        }
-
-        // Create a shm pool and buffer each redraw (MVP).
-        // Optimization later: reuse pool/buffer and only rewrite bytes.
-        let fd = rustix::fs::memfd_create("interlude-frame", rustix::fs::MemfdFlags::CLOEXEC)
-            .map_err(|e| anyhow!("memfd_create: {e}"))?;
-        rustix::fs::ftruncate(&fd, size as u64).map_err(|e| anyhow!("ftruncate: {e}"))?;
-        let raw_fd = fd.into_raw_fd();
-        let file = unsafe { std::fs::File::from_raw_fd(raw_fd) };
-
-        // mmap and copy bytes
-        let mut map =
-            unsafe { memmap2::MmapMut::map_mut(&file) }.map_err(|e| anyhow!("mmap: {e}"))?;
-        map[..].copy_from_slice(&bytes);
-        map.flush().ok();
-
-        let pool = shm.create_pool(file.as_fd(), size as i32, &qh, ());
-        let buffer = pool.create_buffer(
-            0,
-            w as i32,
-            h as i32,
-            stride,
-            wayland_client::protocol::wl_shm::Format::Argb8888,
-            &qh,
-            (),
-        );
-
-        {
-            let s = &mut self.state.surfaces[idx];
-            s.shm_bytes = bytes;
-            s.shm_pool = Some(pool);
-            s.buffer = Some(buffer.clone());
-            s.stride = stride;
         }
 
         let s = &self.state.surfaces[idx];
@@ -952,12 +993,20 @@ impl Dispatch<wl_output::WlOutput, ()> for State {
 impl Dispatch<WlBuffer, ()> for State {
     fn event(
         _state: &mut Self,
-        _proxy: &WlBuffer,
+        proxy: &WlBuffer,
         _event: wl_buffer::Event,
         _data: &(),
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
+        for surface in _state.surfaces.iter_mut() {
+            for slot in surface.buffer_slots.iter_mut() {
+                if &slot.buffer == proxy {
+                    slot.busy = false;
+                    return;
+                }
+            }
+        }
     }
 }
 

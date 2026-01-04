@@ -57,6 +57,8 @@ fn main() -> Result<()> {
     if let Err(err) = spawn_session_lock_watcher(tx_lock) {
         eprintln!("session lock watcher unavailable: {err:?}");
     }
+    let fade_fps = args.fade_fps.max(1);
+    let fade_sleep_ms = (1000 / fade_fps as u64).max(1);
 
     loop {
         for ev in rx_lock.try_iter() {
@@ -188,7 +190,11 @@ fn main() -> Result<()> {
         }
 
         last_phase = sched.phase;
-        let sleep_ms = if locker.is_fading() { 16 } else { 150 };
+        let sleep_ms = if locker.is_fading() {
+            fade_sleep_ms
+        } else {
+            150
+        };
         std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
     }
 }
