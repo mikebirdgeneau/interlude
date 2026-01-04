@@ -233,3 +233,39 @@ fn parse_color(input: &str) -> Option<[u8; 4]> {
     let a = u8::from_str_radix(&expanded[6..8], 16).ok()?;
     Some([r, g, b, a])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_duration_formats_mm_ss() {
+        assert_eq!(fmt_duration(std::time::Duration::from_secs(0)), "00:00");
+        assert_eq!(fmt_duration(std::time::Duration::from_secs(61)), "01:01");
+        assert_eq!(fmt_duration(std::time::Duration::from_secs(3599)), "59:59");
+    }
+
+    #[test]
+    fn parse_color_accepts_rgb_hex() {
+        assert_eq!(parse_color("#000"), Some([0, 0, 0, 0xFF]));
+        assert_eq!(parse_color("#0fF"), Some([0x00, 0xFF, 0xFF, 0xFF]));
+    }
+
+    #[test]
+    fn parse_color_accepts_rrggbb_hex() {
+        assert_eq!(parse_color("#112233"), Some([0x11, 0x22, 0x33, 0xFF]));
+    }
+
+    #[test]
+    fn parse_color_accepts_rrggbbaa_hex() {
+        assert_eq!(parse_color("#11223344"), Some([0x11, 0x22, 0x33, 0x44]));
+    }
+
+    #[test]
+    fn parse_color_rejects_invalid_inputs() {
+        assert_eq!(parse_color("112233"), None);
+        assert_eq!(parse_color("#1234"), None);
+        assert_eq!(parse_color("#ZZZ"), None);
+        assert_eq!(parse_color("#1122334455"), None);
+    }
+}

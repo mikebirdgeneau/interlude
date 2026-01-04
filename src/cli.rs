@@ -43,3 +43,61 @@ pub struct Cli {
     #[arg(long, default_value_t = 60)]
     pub fade_fps: u32,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_defaults() {
+        let cli = Cli::try_parse_from(["interlude"]).expect("default parse");
+        assert_eq!(cli.interval_minutes, 30);
+        assert_eq!(cli.break_seconds, 180);
+        assert_eq!(cli.snooze_base_seconds, 300);
+        assert_eq!(cli.snooze_decay, 0.6);
+        assert_eq!(cli.snooze_min_seconds, 30);
+        assert_eq!(cli.max_snoozes, 0);
+        assert!(!cli.immediate);
+        assert_eq!(cli.background, "#000000CC");
+        assert_eq!(cli.foreground, "#FFFFFDDD");
+        assert_eq!(cli.fade_fps, 60);
+    }
+
+    #[test]
+    fn parse_overrides() {
+        let cli = Cli::try_parse_from([
+            "interlude",
+            "--interval-minutes",
+            "25",
+            "--break-seconds",
+            "120",
+            "--snooze-base-seconds",
+            "240",
+            "--snooze-decay",
+            "0.75",
+            "--snooze-min-seconds",
+            "45",
+            "--max-snoozes",
+            "3",
+            "--immediate",
+            "--background",
+            "#11223344",
+            "--foreground",
+            "#abcdef",
+            "--fade-fps",
+            "24",
+        ])
+        .expect("custom parse");
+
+        assert_eq!(cli.interval_minutes, 25);
+        assert_eq!(cli.break_seconds, 120);
+        assert_eq!(cli.snooze_base_seconds, 240);
+        assert_eq!(cli.snooze_decay, 0.75);
+        assert_eq!(cli.snooze_min_seconds, 45);
+        assert_eq!(cli.max_snoozes, 3);
+        assert!(cli.immediate);
+        assert_eq!(cli.background, "#11223344");
+        assert_eq!(cli.foreground, "#abcdef");
+        assert_eq!(cli.fade_fps, 24);
+    }
+}

@@ -480,6 +480,12 @@ impl Locker {
     }
 
     pub fn unlock(&mut self) {
+        if self.state.overlay_active {
+            self.state.overlay_alpha = 0;
+            self.state.text_alpha = 0;
+            self.redraw_all();
+            let _ = self.conn.flush();
+        }
         for surface in self.state.surfaces.drain(..) {
             surface.layer_surface.destroy();
             surface.wl_surface.destroy();
@@ -487,6 +493,7 @@ impl Locker {
         self.state.overlay_active = false;
         self.state.input_captured = false;
         self.state.desired_capture = false;
+        let _ = self.conn.flush();
     }
 
     fn redraw_all(&mut self) {
