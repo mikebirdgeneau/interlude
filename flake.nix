@@ -163,7 +163,7 @@
                       [ "--fade-fps" (toString settings.fade_fps) ]
                     ];
                     escapedArgs = lib.escapeShellArgs args;
-                    script = ''
+                    resetScript = pkgs.writeShellScript "interlude-start" ''
                       runtime_dir="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
                       marker="$runtime_dir/interlude-reset-on-boot"
                       extra=""
@@ -174,7 +174,7 @@
                       exec ${svc.package}/bin/interlude ${escapedArgs} $extra
                     '';
                   in
-                  "${pkgs.bash}/bin/bash -c ${lib.escapeShellArg script}";
+                  "${resetScript}";
                 Restart = "on-failure";
                 RestartSec = "2s";
               };
