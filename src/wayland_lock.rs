@@ -36,7 +36,7 @@ pub enum UiEvent {
 
 #[derive(Debug, Clone)]
 pub enum UiMode {
-    BreakDue { snooze_secs: u64, can_snooze: bool },
+    BreakDue { break_secs: u64, can_snooze: bool },
     OnBreak { secs_left: u64 },
     BreakFinished,
 }
@@ -214,7 +214,7 @@ impl Locker {
             xkb_keymap: None,
             xkb_state: None,
             ui_mode: UiMode::BreakDue {
-                snooze_secs: 300,
+                break_secs: 0,
                 can_snooze: true,
             },
             tx_ui,
@@ -539,16 +539,16 @@ impl Locker {
 
         let lines = match &self.state.ui_mode {
             UiMode::BreakDue {
-                snooze_secs,
+                break_secs,
                 can_snooze,
             } => {
                 let l1 = "BREAK STARTING".to_string();
+                let m = break_secs / 60;
+                let s = break_secs % 60;
                 let l2 = if *can_snooze {
-                    let m = snooze_secs / 60;
-                    let s = snooze_secs % 60;
-                    format!("Snooze: z/Esc {}:{:02}", m, s)
+                    format!("Break: {:02}:{:02}  Snooze: z/Esc", m, s)
                 } else {
-                    "Snooze disabled".to_string()
+                    format!("Break: {:02}:{:02}", m, s)
                 };
                 vec![
                     LineSpec {

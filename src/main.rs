@@ -124,9 +124,9 @@ fn main() -> Result<()> {
         if locker.is_locked() {
             match sched.phase {
                 Phase::LockedAwaitingAction => {
-                    let snooze = sched.snooze_duration().as_secs();
+                    let break_secs = sched.cfg.break_len.as_secs();
                     locker.set_mode(UiMode::BreakDue {
-                        snooze_secs: snooze,
+                        break_secs,
                         can_snooze: sched.can_snooze(),
                     });
                 }
