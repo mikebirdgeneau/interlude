@@ -165,7 +165,7 @@
                     escapedArgs = lib.escapeShellArgs args;
                   in ''
                     ${pkgs.bash}/bin/bash -c '
-                      runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+                      runtime_dir="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
                       marker="$runtime_dir/interlude-reset-on-boot"
                       extra=""
                       if [ ! -f "$marker" ]; then
