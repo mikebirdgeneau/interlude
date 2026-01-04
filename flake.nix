@@ -140,8 +140,10 @@
               wantedBy = [ "graphical-session.target" ];
               partOf = [ "graphical-session.target" ];
               after = [ "graphical-session.target" ];
-              serviceConfig = {
+              unitConfig = {
                 ConditionPathExistsGlob = "/run/user/%U/wayland-*";
+              };
+              serviceConfig = {
                 ExecStartPre = ''
                   ${pkgs.bash}/bin/bash -c 'until ls /run/user/$UID/wayland-* >/dev/null 2>&1; do sleep 1; done'
                 '';
