@@ -39,8 +39,8 @@ impl Scheduler {
 
     pub fn tick(&mut self) {
         let now = Instant::now();
-        if let Some(dl) = self.deadline {
-            if now >= dl {
+        if let Some(dl) = self.deadline
+            && now >= dl {
                 match self.phase {
                     Phase::Working => {
                         self.phase = Phase::LockedAwaitingAction;
@@ -57,7 +57,6 @@ impl Scheduler {
                     _ => {}
                 }
             }
-        }
     }
 
     pub fn time_left(&self) -> Option<Duration> {

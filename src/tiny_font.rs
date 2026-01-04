@@ -42,6 +42,7 @@ pub fn text_width_size(text: &str, size: f32) -> i32 {
     width
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_text_rgba_size(
     buf: &mut [u8],
     width: u32,

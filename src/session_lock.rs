@@ -64,8 +64,8 @@ fn watch_session_lock(tx: Sender<SessionLockEvent>) -> Result<()> {
             }
             continue;
         }
-        if let Some(new_locked) = extract_state_lock(&changed) {
-            if new_locked != locked {
+        if let Some(new_locked) = extract_state_lock(&changed)
+            && new_locked != locked {
                 locked = new_locked;
                 let _ = tx.send(if locked {
                     SessionLockEvent::Locked
@@ -73,7 +73,6 @@ fn watch_session_lock(tx: Sender<SessionLockEvent>) -> Result<()> {
                     SessionLockEvent::Unlocked
                 });
             }
-        }
     }
 
     Ok(())

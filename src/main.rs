@@ -117,17 +117,15 @@ fn main() -> Result<()> {
             locker.start_fade_in();
         }
 
-        if sched.phase == Phase::OnBreak && last_phase != Phase::OnBreak {
-            if let Some(audio) = &audio {
+        if sched.phase == Phase::OnBreak && last_phase != Phase::OnBreak
+            && let Some(audio) = &audio {
                 audio.play_start();
             }
-        }
 
-        if sched.phase == Phase::BreakFinished && last_phase != Phase::BreakFinished {
-            if let Some(audio) = &audio {
+        if sched.phase == Phase::BreakFinished && last_phase != Phase::BreakFinished
+            && let Some(audio) = &audio {
                 audio.play_end();
             }
-        }
 
         // Update overlay UI mode (only meaningful when locked)
         if locker.is_locked() {

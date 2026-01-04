@@ -144,6 +144,7 @@ fn render_icon(tree: &resvg::Tree, size: u32) -> Option<Icon> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_icon_rgba(
     buf: &mut [u8],
     width: u32,
@@ -612,21 +613,19 @@ impl Locker {
                 .as_ref()
                 .map(|icon| icon.width != icon_size)
                 .unwrap_or(true);
-            if needs_icon {
-                if let Some(tree) = &self.state.icon_tree {
+            if needs_icon
+                && let Some(tree) = &self.state.icon_tree {
                     s.icon = render_icon(tree, icon_size);
                 }
-            }
 
             let small_icon = if matches!(self.state.fade, FadeState::In { .. }) {
                 let small_size = (icon_size / 3).max(24);
                 let needs_small = s.small_icon_size != small_size || s.small_icon.is_none();
-                if needs_small {
-                    if let Some(tree) = &self.state.icon_tree {
+                if needs_small
+                    && let Some(tree) = &self.state.icon_tree {
                         s.small_icon = render_icon(tree, small_size);
                         s.small_icon_size = small_size;
                     }
-                }
                 s.small_icon.clone()
             } else {
                 None
@@ -831,8 +830,8 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                 let mut buf = vec![0u8; size as usize];
                 if file.read_exact(&mut buf).is_ok() {
                     let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-                    if let Ok(s) = std::str::from_utf8(&buf[..end]) {
-                        if let Some(keymap) = xkb::Keymap::new_from_string(
+                    if let Ok(s) = std::str::from_utf8(&buf[..end])
+                        && let Some(keymap) = xkb::Keymap::new_from_string(
                             &state.xkb_context,
                             s.to_string(),
                             xkb::KEYMAP_FORMAT_TEXT_V1,
@@ -841,7 +840,6 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                             state.xkb_state = Some(xkb::State::new(&keymap));
                             state.xkb_keymap = Some(keymap);
                         }
-                    }
                 }
             }
             wl_keyboard::Event::Enter { .. } => {}
@@ -1089,40 +1087,36 @@ impl Dispatch<WlSeat, ()> for State {
         _conn: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        match event {
-            wayland_client::protocol::wl_seat::Event::Capabilities { capabilities } => {
-                let has_keyboard = match capabilities {
-                    WEnum::Value(caps) => {
-                        caps.contains(wayland_client::protocol::wl_seat::Capability::Keyboard)
-                    }
-                    WEnum::Unknown(_) => false,
-                };
-                let has_pointer = match capabilities {
-                    WEnum::Value(caps) => {
-                        caps.contains(wayland_client::protocol::wl_seat::Capability::Pointer)
-                    }
-                    WEnum::Unknown(_) => false,
-                };
-
-                if has_keyboard && state.keyboard.is_none() {
-                    state.keyboard = Some(proxy.get_keyboard(qh, ()));
-                } else if !has_keyboard {
-                    if let Some(kbd) = state.keyboard.take() {
-                        kbd.release();
-                    }
-                    state.xkb_state = None;
-                    state.xkb_keymap = None;
+        if let wayland_client::protocol::wl_seat::Event::Capabilities { capabilities } = event {
+            let has_keyboard = match capabilities {
+                WEnum::Value(caps) => {
+                    caps.contains(wayland_client::protocol::wl_seat::Capability::Keyboard)
                 }
-
-                if has_pointer && state.pointer.is_none() {
-                    state.pointer = Some(proxy.get_pointer(qh, ()));
-                } else if !has_pointer {
-                    if let Some(ptr) = state.pointer.take() {
-                        ptr.release();
-                    }
+                WEnum::Unknown(_) => false,
+            };
+            let has_pointer = match capabilities {
+                WEnum::Value(caps) => {
+                    caps.contains(wayland_client::protocol::wl_seat::Capability::Pointer)
                 }
+                WEnum::Unknown(_) => false,
+            };
+
+            if has_keyboard && state.keyboard.is_none() {
+                state.keyboard = Some(proxy.get_keyboard(qh, ()));
+            } else if !has_keyboard {
+                if let Some(kbd) = state.keyboard.take() {
+                    kbd.release();
+                }
+                state.xkb_state = None;
+                state.xkb_keymap = None;
             }
-            _ => {}
+
+            if has_pointer && state.pointer.is_none() {
+                state.pointer = Some(proxy.get_pointer(qh, ()));
+            } else if !has_pointer
+                && let Some(ptr) = state.pointer.take() {
+                    ptr.release();
+                }
         }
     }
 }
@@ -1160,15 +1154,11 @@ impl Dispatch<wl_pointer::WlPointer, ()> for State {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
     ) {
-        match event {
-            wl_pointer::Event::Button {
+        if let wl_pointer::Event::Button {
                 state: btn_state, ..
-            } => {
-                if btn_state == WEnum::Value(wl_pointer::ButtonState::Pressed) {
-                    let _ = state.tx_ui.send(UiEvent::PointerClick);
-                }
+            } = event
+            && btn_state == WEnum::Value(wl_pointer::ButtonState::Pressed) {
+                let _ = state.tx_ui.send(UiEvent::PointerClick);
             }
-            _ => {}
-        }
     }
 }
