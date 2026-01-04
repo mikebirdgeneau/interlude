@@ -6,6 +6,7 @@ mod audio;
 mod cli;
 mod scheduler;
 mod session_lock;
+mod state;
 mod tiny_font;
 mod wayland_lock;
 
@@ -38,8 +39,18 @@ fn main() -> Result<()> {
         },
     };
 
-    let mut sched = Scheduler::new(cfg);
+    if args.reset_state {
+        if let Err(err) = state::clear_saved_state() {
+            eprintln!("state reset failed: {err}");
+        }
+    }
+    let mut sched = if args.reset_state {
+        Scheduler::new(cfg.clone())
+    } else {
+        state::load_scheduler(&cfg).unwrap_or_else(|| Scheduler::new(cfg.clone()))
+    };
     let mut last_phase = sched.phase;
+    let mut last_save = std::time::Instant::now() - state::save_interval();
     if args.immediate {
         sched.phase = Phase::LockedAwaitingAction;
         sched.deadline = None;
@@ -194,6 +205,13 @@ fn main() -> Result<()> {
                 }
                 _ => {}
             }
+        }
+
+        if last_save.elapsed() >= state::save_interval() || sched.phase != last_phase {
+            if let Err(err) = state::save_scheduler(&sched) {
+                eprintln!("state save failed: {err}");
+            }
+            last_save = std::time::Instant::now();
         }
 
         last_phase = sched.phase;

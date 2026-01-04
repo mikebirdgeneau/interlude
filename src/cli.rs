@@ -42,6 +42,10 @@ pub struct Cli {
     /// Target FPS during fade animations (lower = less compositor load)
     #[arg(long, default_value_t = 60)]
     pub fade_fps: u32,
+
+    /// Ignore any saved timer state and start fresh
+    #[arg(long, default_value_t = false)]
+    pub reset_state: bool,
 }
 
 #[cfg(test)]
@@ -61,6 +65,7 @@ mod tests {
         assert_eq!(cli.background, "#000000CC");
         assert_eq!(cli.foreground, "#FFFFFDDD");
         assert_eq!(cli.fade_fps, 60);
+        assert!(!cli.reset_state);
     }
 
     #[test]
@@ -86,6 +91,7 @@ mod tests {
             "#abcdef",
             "--fade-fps",
             "24",
+            "--reset-state",
         ])
         .expect("custom parse");
 
@@ -99,5 +105,6 @@ mod tests {
         assert_eq!(cli.background, "#11223344");
         assert_eq!(cli.foreground, "#abcdef");
         assert_eq!(cli.fade_fps, 24);
+        assert!(cli.reset_state);
     }
 }

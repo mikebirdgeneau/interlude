@@ -162,8 +162,19 @@
                       [ "--foreground" settings.foreground ]
                       [ "--fade-fps" (toString settings.fade_fps) ]
                     ];
-                  in
-                  "${svc.package}/bin/interlude ${lib.escapeShellArgs args}";
+                    escapedArgs = lib.escapeShellArgs args;
+                  in ''
+                    ${pkgs.bash}/bin/bash -c '
+                      runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+                      marker="$runtime_dir/interlude-reset-on-boot"
+                      extra=""
+                      if [ ! -f "$marker" ]; then
+                        extra="--reset-state"
+                        touch "$marker"
+                      fi
+                      exec ${svc.package}/bin/interlude ${escapedArgs} $extra
+                    '
+                  '';
                 Restart = "on-failure";
                 RestartSec = "2s";
               };
