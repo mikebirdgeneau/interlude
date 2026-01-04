@@ -5,12 +5,14 @@ use crossbeam_channel::unbounded;
 mod audio;
 mod cli;
 mod scheduler;
+mod session_lock;
 mod tiny_font;
 mod wayland_lock;
 
 use audio::Audio;
 use cli::Cli;
 use scheduler::{Config, Phase, Scheduler};
+use session_lock::{SessionLockEvent, spawn_session_lock_watcher};
 use wayland_lock::{Locker, UiColors, UiEvent, UiMode};
 
 fn fmt_duration(d: std::time::Duration) -> String {
@@ -45,14 +47,25 @@ fn main() -> Result<()> {
     }
 
     let (tx_ui, rx_ui) = unbounded();
+    let (tx_lock, rx_lock) = unbounded();
     let colors = UiColors {
         background: parse_color(&args.background).unwrap_or([0, 0, 0, 0xCC]),
         foreground: parse_color(&args.foreground).unwrap_or([0xFF, 0xFF, 0xFD, 0xDD]),
     };
     let mut locker = Locker::new(tx_ui, colors)?;
     let audio = Audio::new();
+    if let Err(err) = spawn_session_lock_watcher(tx_lock) {
+        eprintln!("session lock watcher unavailable: {err:?}");
+    }
 
     loop {
+        for ev in rx_lock.try_iter() {
+            match ev {
+                SessionLockEvent::Locked => sched.handle_session_locked(),
+                SessionLockEvent::Unlocked => sched.handle_session_unlocked(),
+            }
+        }
+
         // Tick core scheduler
         sched.tick();
 

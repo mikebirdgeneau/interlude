@@ -98,6 +98,18 @@ impl Scheduler {
         self.deadline = Some(Instant::now() + d);
         d
     }
+
+    pub fn handle_session_locked(&mut self) {
+        self.phase = Phase::Working;
+        self.deadline = None;
+        self.snooze_count = 0;
+    }
+
+    pub fn handle_session_unlocked(&mut self) {
+        self.phase = Phase::Working;
+        self.deadline = Some(Instant::now() + self.cfg.interval);
+        self.snooze_count = 0;
+    }
 }
 
 #[cfg(test)]
@@ -162,5 +174,31 @@ mod tests {
         let _ = sched.snooze();
         let _ = sched.snooze();
         assert!(!sched.can_snooze());
+    }
+
+    #[test]
+    fn session_lock_clears_deadline() {
+        let mut sched = Scheduler::new(test_cfg());
+        sched.phase = Phase::LockedAwaitingAction;
+        sched.deadline = Some(Instant::now() + Duration::from_secs(1));
+        sched.snooze_count = 2;
+        sched.handle_session_locked();
+        assert_eq!(sched.phase, Phase::Working);
+        assert!(sched.deadline.is_none());
+        assert_eq!(sched.snooze_count, 0);
+    }
+
+    #[test]
+    fn session_unlock_resets_interval() {
+        let mut sched = Scheduler::new(test_cfg());
+        sched.phase = Phase::BreakFinished;
+        sched.deadline = None;
+        sched.snooze_count = 2;
+        let before = Instant::now();
+        sched.handle_session_unlocked();
+        assert_eq!(sched.phase, Phase::Working);
+        let deadline = sched.deadline.expect("deadline should be set");
+        assert!(deadline >= before + sched.cfg.interval);
+        assert_eq!(sched.snooze_count, 0);
     }
 }
