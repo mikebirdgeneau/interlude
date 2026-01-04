@@ -117,6 +117,11 @@
                       default = "#FFFFFDD";
                       description = "Foreground text/icon color in hex.";
                     };
+                    fade_fps = lib.mkOption {
+                      type = lib.types.ints.positive;
+                      default = 60;
+                      description = "Target FPS during fade animations.";
+                    };
                   };
                 };
                 default = { };
@@ -153,6 +158,7 @@
                       (lib.optional settings.immediate "--immediate")
                       [ "--background" settings.background ]
                       [ "--foreground" settings.foreground ]
+                      [ "--fade-fps" (toString settings.fade_fps) ]
                     ];
                   in
                   "${svc.package}/bin/interlude ${lib.escapeShellArgs args}";
