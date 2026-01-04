@@ -63,8 +63,17 @@ fn main() -> Result<()> {
     loop {
         for ev in rx_lock.try_iter() {
             match ev {
-                SessionLockEvent::Locked => sched.handle_session_locked(),
-                SessionLockEvent::Unlocked => sched.handle_session_unlocked(),
+                SessionLockEvent::Locked => {
+                    sched.handle_session_locked();
+                    println!("Timer Paused (session locked)");
+                }
+                SessionLockEvent::Unlocked => {
+                    sched.handle_session_unlocked();
+                    println!(
+                        "Timer Reset (session unlocked, next in {})",
+                        fmt_duration(sched.cfg.interval)
+                    );
+                }
             }
         }
 

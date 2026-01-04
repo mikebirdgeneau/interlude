@@ -22,9 +22,9 @@ use xkbcommon::xkb;
 use crate::tiny_font::{draw_text_rgba_size, line_ascent_size, line_height_size, text_width_size};
 use std::time::{Duration, Instant};
 
+use memmap2::MmapMut;
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, TreeParsing};
-use memmap2::MmapMut;
 
 #[derive(Debug, Clone, Copy)]
 pub enum UiEvent {
@@ -635,24 +635,25 @@ impl Locker {
             (s.icon.clone(), small_icon)
         };
 
-        let icon_height = icon
-            .as_ref()
-            .map(|icon| icon.height as i32)
-            .unwrap_or(0);
+        let icon_height = icon.as_ref().map(|icon| icon.height as i32).unwrap_or(0);
 
         let qh = self.event_queue.handle();
         let (buffer, offset) = {
             let s = &mut self.state.surfaces[idx];
-            let shm_pool_needs_init = s.shm_pool.is_none() || s.shm_size != size || s.stride != stride;
+            let shm_pool_needs_init =
+                s.shm_pool.is_none() || s.shm_size != size || s.stride != stride;
             if shm_pool_needs_init {
-                let fd = rustix::fs::memfd_create("interlude-frame", rustix::fs::MemfdFlags::CLOEXEC)
-                    .map_err(|e| anyhow!("memfd_create: {e}"))?;
+                let fd =
+                    rustix::fs::memfd_create("interlude-frame", rustix::fs::MemfdFlags::CLOEXEC)
+                        .map_err(|e| anyhow!("memfd_create: {e}"))?;
                 let total_size = size * 2;
-                rustix::fs::ftruncate(&fd, total_size as u64).map_err(|e| anyhow!("ftruncate: {e}"))?;
+                rustix::fs::ftruncate(&fd, total_size as u64)
+                    .map_err(|e| anyhow!("ftruncate: {e}"))?;
                 let raw_fd = fd.into_raw_fd();
                 let file = unsafe { std::fs::File::from_raw_fd(raw_fd) };
 
-                let map = unsafe { memmap2::MmapMut::map_mut(&file) }.map_err(|e| anyhow!("mmap: {e}"))?;
+                let map = unsafe { memmap2::MmapMut::map_mut(&file) }
+                    .map_err(|e| anyhow!("mmap: {e}"))?;
 
                 let pool = shm.create_pool(file.as_fd(), total_size as i32, &qh, ());
                 let buffer_a = pool.create_buffer(
@@ -705,7 +706,10 @@ impl Locker {
 
         let bytes = {
             let s = &mut self.state.surfaces[idx];
-            let map = s.shm_map.as_mut().ok_or_else(|| anyhow!("missing shm map"))?;
+            let map = s
+                .shm_map
+                .as_mut()
+                .ok_or_else(|| anyhow!("missing shm map"))?;
             &mut map[offset..offset + size]
         };
 
@@ -733,7 +737,16 @@ impl Locker {
         if let Some(icon) = icon.as_ref() {
             let icon_x = ((w as i32 - icon.width as i32) / 2).max(0);
             if self.state.text_alpha > 0 {
-                draw_icon_rgba(bytes, w, h, icon_x, base_y, icon, tint, self.state.text_alpha);
+                draw_icon_rgba(
+                    bytes,
+                    w,
+                    h,
+                    icon_x,
+                    base_y,
+                    icon,
+                    tint,
+                    self.state.text_alpha,
+                );
             }
         }
 
@@ -760,7 +773,16 @@ impl Locker {
             };
             let alpha = ((self.state.text_alpha as f32) * line.alpha).round() as u8;
             let rgba = [white[0], white[1], white[2], alpha];
-            draw_text_rgba_size(bytes, w, h, base_x, line_y + ascent, &line.text, rgba, line.size);
+            draw_text_rgba_size(
+                bytes,
+                w,
+                h,
+                base_x,
+                line_y + ascent,
+                &line.text,
+                rgba,
+                line.size,
+            );
             line_y += line_height_size(line.size);
         }
 
