@@ -133,8 +133,13 @@
               systemd.user.services.interlude = {
               description = "Interlude wellness break overlay";
               wantedBy = [ "graphical-session.target" ];
+              partOf = [ "graphical-session.target" ];
               after = [ "graphical-session.target" ];
               serviceConfig = {
+                ConditionPathExistsGlob = "/run/user/%U/wayland-*";
+                ExecStartPre = ''
+                  ${pkgs.bash}/bin/bash -c 'until ls /run/user/$UID/wayland-* >/dev/null 2>&1; do sleep 1; done'
+                '';
                 ExecStart =
                   let
                     settings = svc.settings;
@@ -152,6 +157,7 @@
                   in
                   "${svc.package}/bin/interlude ${lib.escapeShellArgs args}";
                 Restart = "on-failure";
+                RestartSec = "2s";
               };
               };
             })
