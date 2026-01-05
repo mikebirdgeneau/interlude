@@ -146,11 +146,15 @@ fn main() -> Result<()> {
                     locker.set_mode(UiMode::BreakDue {
                         break_secs,
                         can_snooze: sched.can_snooze(),
+                        snooze_count: sched.snooze_count,
                     });
                 }
                 Phase::OnBreak => {
                     let left = sched.time_left().map(|d| d.as_secs()).unwrap_or(0);
-                    locker.set_mode(UiMode::OnBreak { secs_left: left });
+                    locker.set_mode(UiMode::OnBreak {
+                        secs_left: left,
+                        snooze_count: sched.snooze_count,
+                    });
                 }
                 Phase::BreakFinished => {
                     locker.set_mode(UiMode::BreakFinished);

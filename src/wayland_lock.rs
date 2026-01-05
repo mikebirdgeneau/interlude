@@ -20,7 +20,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 use xkbcommon::xkb;
 
 use crate::tiny_font::{draw_text_rgba_size, line_ascent_size, line_height_size, text_width_size};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use memmap2::MmapMut;
 use resvg::tiny_skia::{Pixmap, Transform};
@@ -36,8 +36,15 @@ pub enum UiEvent {
 
 #[derive(Debug, Clone)]
 pub enum UiMode {
-    BreakDue { break_secs: u64, can_snooze: bool },
-    OnBreak { secs_left: u64 },
+    BreakDue {
+        break_secs: u64,
+        can_snooze: bool,
+        snooze_count: u32,
+    },
+    OnBreak {
+        secs_left: u64,
+        snooze_count: u32,
+    },
     BreakFinished,
 }
 
@@ -130,6 +137,75 @@ const TEXT_FADE_IN_WINDOW: Duration = Duration::from_secs(3);
 const ICON_SVG: &[u8] = include_bytes!("../assets/plant-2.svg");
 const ICON_BASE_SIZE: u32 = 120;
 const ICON_GAP: i32 = 20;
+const MESSAGE_ROTATE_SECONDS: u64 = 60;
+
+const WELLNESS_MESSAGES: &[&str] = &[
+    "Soften your gaze and breathe slowly.",
+    "Inhale for four, exhale for six.",
+    "Let your shoulders melt away from your ears.",
+    "Relax your jaw and smooth the brow.",
+    "Feel your feet connecting with the ground.",
+    "Lengthen your spine with a gentle inhale.",
+    "Roll the shoulders back and down.",
+    "Gently tilt your head side to side.",
+    "Let your eyes rest on a distant point.",
+    "Blink slowly and let the eyes soften.",
+    "Take three long, easy breaths.",
+    "Unclench the belly and breathe low.",
+    "Notice the air moving in and out.",
+    "Wiggle the fingers and toes.",
+    "Shake out the hands and wrists.",
+    "Circle the ankles, one at a time.",
+    "Lift the chest and open the heart.",
+    "Release any gripping in the hands.",
+    "Pause and listen to three sounds nearby.",
+    "Let the exhale be slow and smooth.",
+    "Allow the neck to lengthen gently.",
+    "Breathe in calm, breathe out tension.",
+    "If you can, stand and take a few steps.",
+    "Take a short walk and feel your body move.",
+    "Take a few gentle pushups or wall pushups.",
+    "Drink some water, slowly and mindfully.",
+    "Look at something far away for 20 seconds.",
+    "Stand tall and stretch the sides of your body.",
+    "Gently twist the spine, left and right.",
+    "Open and close the hands, slowly.",
+    "Rest your eyes; let them go soft.",
+    "Slowly roll the neck, only if it feels good.",
+    "Sip water slowly and mindfully.",
+    "Let the face be soft and neutral.",
+];
+
+const WELLNESS_MESSAGES_FIRM: &[&str] = &[
+    "This break is for you. Let it help.",
+    "Please step away from screens for a moment.",
+    "No phone right now. This is a screen break.",
+    "Give your mind a pause. Breathe and reset.",
+    "Let the work wait. Take the break.",
+    "Stay with the break. Your body will thank you.",
+    "Step away from screens and let your eyes rest.",
+    "You deserve this break. Stay with it.",
+    "No scrolling right now. Just breathe.",
+    "This is your time. Take it fully.",
+];
+
+fn wellness_message(snooze_count: u32) -> &'static str {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0));
+    let tick = now.as_secs() / MESSAGE_ROTATE_SECONDS;
+    let mut seed = tick ^ ((snooze_count as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    seed ^= seed >> 33;
+    seed = seed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+    seed ^= seed >> 33;
+    let messages = if snooze_count > 3 {
+        WELLNESS_MESSAGES_FIRM
+    } else {
+        WELLNESS_MESSAGES
+    };
+    let idx = (seed as usize) % messages.len();
+    messages[idx]
+}
 
 fn render_icon(tree: &resvg::Tree, size: u32) -> Option<Icon> {
     let mut pixmap = Pixmap::new(size, size)?;
@@ -217,6 +293,7 @@ impl Locker {
             ui_mode: UiMode::BreakDue {
                 break_secs: 0,
                 can_snooze: true,
+                snooze_count: 0,
             },
             tx_ui,
         };
@@ -548,16 +625,14 @@ impl Locker {
         let lines = match &self.state.ui_mode {
             UiMode::BreakDue {
                 break_secs,
-                can_snooze,
+                can_snooze: _,
+                snooze_count,
             } => {
                 let l1 = "BREAK STARTING".to_string();
                 let m = break_secs / 60;
                 let s = break_secs % 60;
-                let l2 = if *can_snooze {
-                    format!("Break: {:02}:{:02}  Snooze: z/Esc", m, s)
-                } else {
-                    format!("Break: {:02}:{:02}", m, s)
-                };
+                let l2 = format!("Break: {:02}:{:02}", m, s);
+                let l3 = wellness_message(*snooze_count).to_string();
                 vec![
                     LineSpec {
                         text: l1,
@@ -571,9 +646,18 @@ impl Locker {
                         alpha: 0.65,
                         anchor: LineAnchor::Center,
                     },
+                    LineSpec {
+                        text: l3,
+                        size: small_size,
+                        alpha: 0.65,
+                        anchor: LineAnchor::Center,
+                    },
                 ]
             }
-            UiMode::OnBreak { secs_left } => {
+            UiMode::OnBreak {
+                secs_left,
+                snooze_count,
+            } => {
                 let m = secs_left / 60;
                 let s = secs_left % 60;
                 vec![
@@ -584,7 +668,7 @@ impl Locker {
                         anchor: LineAnchor::CenterOnColon,
                     },
                     LineSpec {
-                        text: "Snooze: z/Esc".to_string(),
+                        text: wellness_message(*snooze_count).to_string(),
                         size: small_size,
                         alpha: 0.65,
                         anchor: LineAnchor::Center,
