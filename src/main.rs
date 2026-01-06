@@ -145,7 +145,6 @@ fn main() -> Result<()> {
                     let break_secs = sched.cfg.break_len.as_secs();
                     locker.set_mode(UiMode::BreakDue {
                         break_secs,
-                        can_snooze: sched.can_snooze(),
                         snooze_count: sched.snooze_count,
                     });
                 }

@@ -38,7 +38,6 @@ pub enum UiEvent {
 pub enum UiMode {
     BreakDue {
         break_secs: u64,
-        can_snooze: bool,
         snooze_count: u32,
     },
     OnBreak {
@@ -292,7 +291,6 @@ impl Locker {
             xkb_state: None,
             ui_mode: UiMode::BreakDue {
                 break_secs: 0,
-                can_snooze: true,
                 snooze_count: 0,
             },
             tx_ui,
@@ -625,7 +623,6 @@ impl Locker {
         let lines = match &self.state.ui_mode {
             UiMode::BreakDue {
                 break_secs,
-                can_snooze: _,
                 snooze_count,
             } => {
                 let l1 = "BREAK STARTING".to_string();

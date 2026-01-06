@@ -1,5 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use crossbeam_channel::Sender;
+use rustix::process::getuid;
 use std::collections::HashMap;
 use std::thread;
 use zbus::blocking::{Connection, Proxy};
@@ -33,7 +34,7 @@ fn watch_session_lock(tx: Sender<SessionLockEvent>) -> Result<()> {
     )
     .context("create login1 manager proxy")?;
 
-    let session_path = get_session_path(&manager)?;
+    let session_path = get_session_path(&connection, &manager)?;
     let session = Proxy::new(
         &connection,
         "org.freedesktop.login1",
@@ -78,7 +79,7 @@ fn watch_session_lock(tx: Sender<SessionLockEvent>) -> Result<()> {
     Ok(())
 }
 
-fn get_session_path(manager: &Proxy) -> Result<OwnedObjectPath> {
+fn get_session_path(connection: &Connection, manager: &Proxy) -> Result<OwnedObjectPath> {
     if let Ok(session_id) = std::env::var("XDG_SESSION_ID") {
         let path: OwnedObjectPath = manager
             .call("GetSession", &(session_id))
@@ -86,10 +87,32 @@ fn get_session_path(manager: &Proxy) -> Result<OwnedObjectPath> {
         return Ok(path);
     }
     let pid = std::process::id();
-    let path: OwnedObjectPath = manager
-        .call("GetSessionByPID", &(pid))
-        .context("GetSessionByPID failed")?;
-    Ok(path)
+    let pid_err = match manager.call("GetSessionByPID", &(pid)) {
+        Ok(path) => return Ok(path),
+        Err(err) => err,
+    };
+
+    let paths = match list_user_session_paths(manager) {
+        Ok(paths) => paths,
+        Err(list_err) => {
+            return Err(anyhow!(
+                "GetSessionByPID failed: {pid_err}; ListSessions failed: {list_err}"
+            ));
+        }
+    };
+
+    if let Some(path) = find_active_session(connection, &paths) {
+        return Ok(path);
+    }
+
+    if let Some(path) = paths.into_iter().next() {
+        return Ok(path);
+    }
+
+    Err(anyhow!(
+        "GetSessionByPID failed: {pid_err}; no login1 sessions found for uid {}",
+        getuid().as_raw()
+    ))
 }
 
 fn extract_locked_hint(changed: &HashMap<String, Value>) -> Option<bool> {
@@ -104,4 +127,40 @@ fn extract_state_lock(changed: &HashMap<String, Value>) -> Option<bool> {
         "active" | "online" => Some(false),
         _ => Some(true),
     }
+}
+
+fn list_user_session_paths(manager: &Proxy) -> Result<Vec<OwnedObjectPath>> {
+    let uid = getuid().as_raw();
+    let sessions: Vec<(String, u32, String, String, OwnedObjectPath)> = manager
+        .call("ListSessions", &())
+        .context("ListSessions failed")?;
+    Ok(sessions
+        .into_iter()
+        .filter(|(_, sess_uid, _, _, _)| *sess_uid == uid)
+        .map(|(_, _, _, _, path)| path)
+        .collect())
+}
+
+fn find_active_session(
+    connection: &Connection,
+    paths: &[OwnedObjectPath],
+) -> Option<OwnedObjectPath> {
+    for path in paths {
+        let session = Proxy::new(
+            connection,
+            "org.freedesktop.login1",
+            path.clone(),
+            "org.freedesktop.login1.Session",
+        )
+        .ok()?;
+        if let Ok(true) = session.get_property::<bool>("Active") {
+            return Some(path.clone());
+        }
+        if let Ok(state) = session.get_property::<String>("State") {
+            if matches!(state.as_str(), "active" | "online") {
+                return Some(path.clone());
+            }
+        }
+    }
+    None
 }
