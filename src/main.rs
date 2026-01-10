@@ -25,6 +25,7 @@ fn fmt_duration(d: std::time::Duration) -> String {
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+    println!("interlude {}", env!("CARGO_PKG_VERSION"));
 
     let cfg = Config {
         interval: std::time::Duration::from_secs(args.interval_minutes * 60),

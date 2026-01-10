@@ -69,6 +69,14 @@
                 default = self.packages.${pkgs.system}.default;
                 description = "Interlude package to run in the user session.";
               };
+              sessionTarget = lib.mkOption {
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+                description = ''
+                  Optional systemd user target that should be active
+                  before Interlude starts.
+                '';
+              };
               settings = lib.mkOption {
                 type = lib.types.submodule {
                   options = {
@@ -114,7 +122,7 @@
                     };
                     foreground = lib.mkOption {
                       type = lib.types.str;
-                      default = "#FFFFFDD";
+                      default = "#FFFFFFDD";
                       description = "Foreground text/icon color in hex.";
                     };
                     fade_fps = lib.mkOption {
@@ -135,17 +143,32 @@
               environment.systemPackages = [ cfg.package ];
             })
             (lib.mkIf svc.enable {
+              systemd.user.targets.interlude-session = {
+                description = "Interlude wellness break session target";
+              } // lib.optionalAttrs (svc.sessionTarget != null) {
+                wants = [ svc.sessionTarget ];
+                after = [ svc.sessionTarget ];
+              };
               systemd.user.services.interlude = {
               description = "Interlude wellness break overlay";
-              wantedBy = [ "graphical-session.target" ];
-              partOf = [ "graphical-session.target" ];
-              after = [ "graphical-session.target" ];
-              unitConfig = {
-                ConditionPathExistsGlob = "/run/user/%U/wayland-*";
-              };
+              wantedBy = [ "interlude-session.target" ];
+              partOf = [ "interlude-session.target" ];
+              after = [ "interlude-session.target" ];
               serviceConfig = {
                 ExecStartPre = ''
-                  ${pkgs.bash}/bin/bash -c 'until ls /run/user/$UID/wayland-* >/dev/null 2>&1; do sleep 1; done'
+                  ${pkgs.bash}/bin/bash -lc '
+                    set -euo pipefail
+                    # Prefer the actual socket for this session
+                    if [ -n "''${XDG_RUNTIME_DIR:-}" ] && [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+                      sock="''${XDG_RUNTIME_DIR}/''${WAYLAND_DISPLAY}"
+                      until [ -S "$sock" ]; do sleep 0.1; done
+                      exit 0
+                    fi
+
+                   # Fallback: any wayland socket for this user
+                  dir="''${XDG_RUNTIME_DIR:-/run/user/$UID}"
+                  until compgen -G "$dir/wayland-*" >/dev/null; do sleep 0.1; done
+                  '
                 '';
                 ExecStart =
                   let
