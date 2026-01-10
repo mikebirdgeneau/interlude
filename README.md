@@ -18,6 +18,7 @@ It does not lock your session or manage passwords. Your existing screen locker c
 - 30 minutes of work, followed by a short break
 - Breaks last 180 seconds by default
 - Snooze starts at 5 minutes and shortens if used repeatedly
+- Each snooze increases the upcoming break length by 10%
 - Keyboard controls:
   - `Enter`: start or dismiss a break
   - `z`: snooze when a break is due

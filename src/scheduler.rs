@@ -81,7 +81,7 @@ impl Scheduler {
 
     pub fn start_break(&mut self) {
         self.phase = Phase::OnBreak;
-        self.deadline = Some(Instant::now() + self.cfg.break_len);
+        self.deadline = Some(Instant::now() + self.break_duration());
     }
 
     pub fn finish_and_restart(&mut self) {
@@ -96,6 +96,13 @@ impl Scheduler {
         self.phase = Phase::Snoozing;
         self.deadline = Some(Instant::now() + d);
         d
+    }
+
+    pub fn break_duration(&self) -> Duration {
+        let base = self.cfg.break_len.as_secs_f64();
+        let multiplier = 1.0 + (self.snooze_count as f64 * 0.1);
+        let dur = (base * multiplier).round().max(base);
+        Duration::from_secs(dur as u64)
     }
 
     pub fn handle_session_locked(&mut self) {
@@ -164,6 +171,19 @@ mod tests {
         sched.finish_and_restart();
         assert_eq!(sched.snooze_count, 0);
         assert_eq!(sched.phase, Phase::Working);
+    }
+
+    #[test]
+    fn break_duration_increases_with_snooze_count() {
+        let mut cfg = test_cfg();
+        cfg.break_len = Duration::from_secs(100);
+        let mut sched = Scheduler::new(cfg);
+        sched.snooze_count = 0;
+        assert_eq!(sched.break_duration().as_secs(), 100);
+        sched.snooze_count = 1;
+        assert_eq!(sched.break_duration().as_secs(), 110);
+        sched.snooze_count = 2;
+        assert_eq!(sched.break_duration().as_secs(), 120);
     }
 
     #[test]
