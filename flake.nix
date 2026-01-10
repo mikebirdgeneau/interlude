@@ -161,18 +161,18 @@
                 ExecStartPre = 
                   let
                     waitWayland = pkgs.writeShellScript "interlude-wait-wayland" ''
-        set -euo pipefail
-        # Prefer the actual socket for this session
-        if [ -n "''${XDG_RUNTIME_DIR:-}" ] && [ -n "''${WAYLAND_DISPLAY:-}" ]; then
-          sock="''${XDG_RUNTIME_DIR}/''${WAYLAND_DISPLAY}"
-          until [ -S "$sock" ]; do sleep 0.1; done
-          exit 0
-        fi
+                      set -euo pipefail
+                      # Prefer the actual socket for this session
+                      if [ -n "''${XDG_RUNTIME_DIR:-}" ] && [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+                        sock="''${XDG_RUNTIME_DIR}/''${WAYLAND_DISPLAY}"
+                        until [ -S "$sock" ]; do sleep 0.1; done
+                        exit 0
+                      fi
 
-# Fallback: any wayland socket for this user
-        dir="''${XDG_RUNTIME_DIR:-/run/user/$UID}"
-        until compgen -G "$dir/wayland-*" >/dev/null; do sleep 0.1; done
-        '';
+                      # Fallback: any wayland socket for this user
+                      dir="''${XDG_RUNTIME_DIR:-/run/user/$UID}"
+                      until compgen -G "$dir/wayland-*" >/dev/null; do sleep 0.1; done
+                    '';
                   in
                   "${waitWayland}";
                 ExecStart =
