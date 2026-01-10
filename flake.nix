@@ -9,6 +9,8 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+      packageVersion = cargoToml.package.version;
     in
     {
       packages = forAllSystems (system:
@@ -18,7 +20,7 @@
         {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "interlude";
-            version = "0.1.0";
+            version = packageVersion;
             src = ./.;
             cargoLock = {
               lockFile = ./Cargo.lock;
