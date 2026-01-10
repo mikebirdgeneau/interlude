@@ -11,31 +11,45 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
       cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
       packageVersion = cargoToml.package.version;
-    in
-    {
-      packages = forAllSystems (system:
-        let
-          pkgs = import nixpkgs { inherit system; };
-        in
-        {
-          default = pkgs.rustPlatform.buildRustPackage {
+
+      waitWayland = pkgs.writeShellScript "interlude-wait-wayland" ''
+        set -euo pipefail
+        # Prefer the actual socket for this session
+        if [ -n "''${XDG_RUNTIME_DIR:-}" ] && [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+          sock="''${XDG_RUNTIME_DIR}/''${WAYLAND_DISPLAY}"
+          until [ -S "$sock" ]; do sleep 0.1; done
+          exit 0
+        fi
+
+# Fallback: any wayland socket for this user
+        dir="''${XDG_RUNTIME_DIR:-/run/user/$UID}"
+        until compgen -G "$dir/wayland-*" >/dev/null; do sleep 0.1; done
+        '';
+      in
+      {
+        packages = forAllSystems (system:
+            let
+            pkgs = import nixpkgs { inherit system; };
+            in
+            {
+            default = pkgs.rustPlatform.buildRustPackage {
             pname = "interlude";
             version = packageVersion;
             src = ./.;
             cargoLock = {
-              lockFile = ./Cargo.lock;
+            lockFile = ./Cargo.lock;
             };
             nativeBuildInputs = [
-              pkgs.pkg-config
+            pkgs.pkg-config
             ];
             buildInputs = [
-              pkgs.alsa-lib
-              pkgs.libopus
-              pkgs.libxkbcommon
-              pkgs.wayland
+            pkgs.alsa-lib
+            pkgs.libopus
+            pkgs.libxkbcommon
+            pkgs.wayland
             ];
-          };
-        });
+            };
+            });
 
       apps = forAllSystems (system:
         let
@@ -157,21 +171,7 @@
               partOf = [ "interlude-session.target" ];
               after = [ "interlude-session.target" ];
               serviceConfig = {
-                ExecStartPre = ''
-                  ${pkgs.bash}/bin/bash -lc '
-                    set -euo pipefail
-                    # Prefer the actual socket for this session
-                    if [ -n "''${XDG_RUNTIME_DIR:-}" ] && [ -n "''${WAYLAND_DISPLAY:-}" ]; then
-                      sock="''${XDG_RUNTIME_DIR}/''${WAYLAND_DISPLAY}"
-                      until [ -S "$sock" ]; do sleep 0.1; done
-                      exit 0
-                    fi
-
-                   # Fallback: any wayland socket for this user
-                  dir="''${XDG_RUNTIME_DIR:-/run/user/$UID}"
-                  until compgen -G "$dir/wayland-*" >/dev/null; do sleep 0.1; done
-                  '
-                '';
+                ExecStartPre = "${$resetScript}";
                 ExecStart =
                   let
                     settings = svc.settings;
