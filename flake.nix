@@ -171,7 +171,7 @@
               partOf = [ "interlude-session.target" ];
               after = [ "interlude-session.target" ];
               serviceConfig = {
-                ExecStartPre = "${$resetScript}";
+                ExecStartPre = "${waitWayland}";
                 ExecStart =
                   let
                     settings = svc.settings;
