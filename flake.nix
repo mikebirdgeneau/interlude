@@ -105,7 +105,7 @@
                     };
                     snooze_min_seconds = lib.mkOption {
                       type = lib.types.ints.positive;
-                      default = 30;
+                      default = 25;
                       description = "Minimum snooze duration in seconds.";
                     };
                     max_snoozes = lib.mkOption {
