@@ -942,14 +942,11 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                     // Wayland keycodes are offset by 8 from evdev
                     let sym = xkbs.key_get_one_sym((key + 8).into());
 
-                    // Decode minimal keys: Enter, 'z', and Escape (snooze)
-                    // xkbcommon keysyms: Return = 0xff0d, Escape = 0xff1b, z = 0x007a
+                    // Decode minimal keys: Enter and 'z' (snooze)
+                    // xkbcommon keysyms: Return = 0xff0d, z = 0x007a
                     match sym.raw() {
                         0xff0d => {
                             let _ = state.tx_ui.send(UiEvent::PressEnter);
-                        }
-                        0xff1b => {
-                            let _ = state.tx_ui.send(UiEvent::PressZ);
                         }
                         0x007a | 0x005a => {
                             let _ = state.tx_ui.send(UiEvent::PressZ);
@@ -959,9 +956,6 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for State {
                 } else {
                     // Fallback to common evdev keycodes if no keymap yet.
                     match key {
-                        1 => {
-                            let _ = state.tx_ui.send(UiEvent::PressZ);
-                        }
                         28 => {
                             let _ = state.tx_ui.send(UiEvent::PressEnter);
                         }
