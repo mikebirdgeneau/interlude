@@ -25,6 +25,7 @@ pub struct Scheduler {
     pub deadline: Option<Instant>,
     pub snooze_count: u32,
     pub cfg: Config,
+    paused_remaining: Option<Duration>,
 }
 
 impl Scheduler {
@@ -34,10 +35,14 @@ impl Scheduler {
             deadline: Some(Instant::now() + cfg.interval),
             snooze_count: 0,
             cfg,
+            paused_remaining: None,
         }
     }
 
     pub fn tick(&mut self) {
+        if self.paused_remaining.is_some() {
+            return;
+        }
         let now = Instant::now();
         if let Some(dl) = self.deadline
             && now >= dl {
@@ -60,6 +65,9 @@ impl Scheduler {
     }
 
     pub fn time_left(&self) -> Option<Duration> {
+        if let Some(remaining) = self.paused_remaining {
+            return Some(remaining);
+        }
         self.deadline
             .map(|d| d.saturating_duration_since(Instant::now()))
     }
@@ -82,12 +90,14 @@ impl Scheduler {
     pub fn start_break(&mut self) {
         self.phase = Phase::OnBreak;
         self.deadline = Some(Instant::now() + self.break_duration());
+        self.paused_remaining = None;
     }
 
     pub fn finish_and_restart(&mut self) {
         self.phase = Phase::Working;
         self.deadline = Some(Instant::now() + self.cfg.interval);
         self.snooze_count = 0;
+        self.paused_remaining = None;
     }
 
     pub fn snooze(&mut self) -> Duration {
@@ -95,6 +105,7 @@ impl Scheduler {
         self.snooze_count = self.snooze_count.saturating_add(1);
         self.phase = Phase::Snoozing;
         self.deadline = Some(Instant::now() + d);
+        self.paused_remaining = None;
         d
     }
 
@@ -109,12 +120,46 @@ impl Scheduler {
         self.phase = Phase::Working;
         self.deadline = None;
         self.snooze_count = 0;
+        self.paused_remaining = None;
     }
 
     pub fn handle_session_unlocked(&mut self) {
         self.phase = Phase::Working;
         self.deadline = Some(Instant::now() + self.cfg.interval);
         self.snooze_count = 0;
+        self.paused_remaining = None;
+    }
+
+    pub fn pause_interval(&mut self) -> bool {
+        if self.paused_remaining.is_some() {
+            return false;
+        }
+        if !matches!(self.phase, Phase::Working | Phase::Snoozing) {
+            return false;
+        }
+        let Some(deadline) = self.deadline else {
+            return false;
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        self.deadline = None;
+        self.paused_remaining = Some(remaining);
+        true
+    }
+
+    pub fn resume_interval(&mut self) -> bool {
+        let Some(remaining) = self.paused_remaining.take() else {
+            return false;
+        };
+        if matches!(self.phase, Phase::Working | Phase::Snoozing) {
+            self.deadline = Some(Instant::now() + remaining);
+        } else {
+            self.deadline = None;
+        }
+        true
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused_remaining.is_some()
     }
 }
 
@@ -219,5 +264,19 @@ mod tests {
         let deadline = sched.deadline.expect("deadline should be set");
         assert!(deadline >= before + sched.cfg.interval);
         assert_eq!(sched.snooze_count, 0);
+    }
+
+    #[test]
+    fn pause_and_resume_preserve_remaining() {
+        let mut sched = Scheduler::new(test_cfg());
+        sched.deadline = Some(Instant::now() + Duration::from_secs(15));
+        assert!(sched.pause_interval());
+        assert!(sched.is_paused());
+        assert!(sched.deadline.is_none());
+        let remaining = sched.time_left().expect("remaining should be set");
+        assert!(remaining.as_secs() <= 15);
+        assert!(sched.resume_interval());
+        assert!(!sched.is_paused());
+        assert!(sched.deadline.is_some());
     }
 }

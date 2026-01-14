@@ -4,6 +4,7 @@ use crossbeam_channel::unbounded;
 
 mod audio;
 mod cli;
+mod inhibitors;
 mod scheduler;
 mod session_lock;
 mod state;
@@ -12,6 +13,7 @@ mod wayland_lock;
 
 use audio::Audio;
 use cli::Cli;
+use inhibitors::InhibitorWatcher;
 use scheduler::{Config, Phase, Scheduler};
 use session_lock::{SessionLockEvent, spawn_session_lock_watcher};
 use wayland_lock::{Locker, UiColors, UiEvent, UiMode};
@@ -66,6 +68,7 @@ fn main() -> Result<()> {
     };
     let mut locker = Locker::new(tx_ui, colors)?;
     let audio = Audio::new();
+    let mut inhibitors = InhibitorWatcher::new(std::time::Duration::from_secs(1));
     if let Err(err) = spawn_session_lock_watcher(tx_lock) {
         eprintln!("session lock watcher unavailable: {err:?}");
     }
@@ -87,6 +90,19 @@ fn main() -> Result<()> {
                     );
                 }
             }
+        }
+
+        let inhibitors_active = inhibitors.is_active();
+        if inhibitors_active {
+            if sched.pause_interval() {
+                println!("Timer Paused (systemd inhibitor)");
+            }
+        } else if sched.resume_interval() {
+            let next = sched.time_left().unwrap_or(sched.cfg.interval);
+            println!(
+                "Timer Resumed (systemd inhibitor cleared, next in {})",
+                fmt_duration(next)
+            );
         }
 
         // Tick core scheduler
