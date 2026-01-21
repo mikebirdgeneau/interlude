@@ -248,6 +248,7 @@ mod tests {
     fn break_duration_increases_with_snooze_count() {
         let mut cfg = test_cfg();
         cfg.break_len = Duration::from_secs(100);
+        cfg.initial_break_len = cfg.break_len;
         let mut sched = Scheduler::new(cfg);
         sched.snooze_count = 0;
         assert_eq!(sched.break_duration().as_secs(), 100);
