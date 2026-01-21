@@ -32,6 +32,8 @@ fn main() -> Result<()> {
     let cfg = Config {
         interval: std::time::Duration::from_secs(args.interval_minutes * 60),
         break_len: std::time::Duration::from_secs(args.break_seconds),
+        initial_interval: std::time::Duration::from_secs(args.initial_interval_minutes * 60),
+        initial_break_len: std::time::Duration::from_secs(args.initial_break_seconds),
         snooze_base: std::time::Duration::from_secs(args.snooze_base_seconds),
         snooze_decay: args.snooze_decay,
         snooze_min: std::time::Duration::from_secs(args.snooze_min_seconds),
@@ -54,6 +56,7 @@ fn main() -> Result<()> {
     };
     let mut last_phase = sched.phase;
     let mut last_save = std::time::Instant::now() - state::save_interval();
+    let mut last_wall = std::time::SystemTime::now();
     if args.immediate {
         sched.phase = Phase::LockedAwaitingAction;
         sched.deadline = None;
@@ -86,11 +89,29 @@ fn main() -> Result<()> {
                     sched.handle_session_unlocked();
                     println!(
                         "Timer Reset (session unlocked, next in {})",
-                        fmt_duration(sched.cfg.interval)
+                        fmt_duration(sched.interval_duration())
                     );
                 }
             }
         }
+
+        let now_wall = std::time::SystemTime::now();
+        if let Ok(elapsed) = now_wall.duration_since(last_wall) {
+            let lock_paused =
+                sched.phase == Phase::Working && sched.deadline.is_none() && !sched.is_paused();
+            if elapsed >= sched.break_duration() && !lock_paused {
+                sched.finish_and_restart();
+                if locker.is_locked() {
+                    locker.start_fade_out();
+                }
+                println!(
+                    "Timer Reset (system idle for {}, next in {})",
+                    fmt_duration(elapsed),
+                    fmt_duration(sched.interval_duration())
+                );
+            }
+        }
+        last_wall = now_wall;
 
         let inhibitors_active = inhibitors.is_active();
         if inhibitors_active {
@@ -98,7 +119,7 @@ fn main() -> Result<()> {
                 println!("Timer Paused (systemd inhibitor)");
             }
         } else if sched.resume_interval() {
-            let next = sched.time_left().unwrap_or(sched.cfg.interval);
+            let next = sched.time_left().unwrap_or(sched.interval_duration());
             println!(
                 "Timer Resumed (systemd inhibitor cleared, next in {})",
                 fmt_duration(next)
@@ -220,7 +241,7 @@ fn main() -> Result<()> {
                 Phase::BreakFinished => {
                     println!(
                         "Break Complete (next in {})",
-                        fmt_duration(sched.cfg.interval)
+                        fmt_duration(sched.interval_duration())
                     );
                 }
                 _ => {}

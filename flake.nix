@@ -88,10 +88,20 @@
                       default = 30;
                       description = "Minutes between breaks.";
                     };
+                    initial_interval_minutes = lib.mkOption {
+                      type = lib.types.ints.positive;
+                      default = 60;
+                      description = "Minutes before the first break.";
+                    };
                     break_seconds = lib.mkOption {
                       type = lib.types.ints.positive;
                       default = 180;
                       description = "Break duration in seconds.";
+                    };
+                    initial_break_seconds = lib.mkOption {
+                      type = lib.types.ints.positive;
+                      default = 300;
+                      description = "Initial break duration in seconds.";
                     };
                     snooze_base_seconds = lib.mkOption {
                       type = lib.types.ints.positive;
@@ -180,7 +190,9 @@
                     settings = svc.settings;
                     args = lib.flatten [
                       [ "--interval-minutes" (toString settings.interval_minutes) ]
+                      [ "--initial-interval-minutes" (toString settings.initial_interval_minutes) ]
                       [ "--break-seconds" (toString settings.break_seconds) ]
+                      [ "--initial-break-seconds" (toString settings.initial_break_seconds) ]
                       [ "--snooze-base-seconds" (toString settings.snooze_base_seconds) ]
                       [ "--snooze-decay" (toString settings.snooze_decay) ]
                       [ "--snooze-min-seconds" (toString settings.snooze_min_seconds) ]

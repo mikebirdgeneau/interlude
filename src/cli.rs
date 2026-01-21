@@ -3,13 +3,21 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(name = "interlude", about = "Wayland session-lock break enforcer")]
 pub struct Cli {
-    /// Minutes between breaks
+    /// Minutes between breaks after the first one
     #[arg(long, default_value_t = 30)]
     pub interval_minutes: u64,
 
-    /// Break duration in seconds
+    /// Minutes before the first break
+    #[arg(long, default_value_t = 60)]
+    pub initial_interval_minutes: u64,
+
+    /// Break duration in seconds after the first break
     #[arg(long, default_value_t = 180)]
     pub break_seconds: u64,
+
+    /// Initial break duration in seconds
+    #[arg(long, default_value_t = 300)]
+    pub initial_break_seconds: u64,
 
     /// Initial snooze duration in seconds (shrinks each snooze)
     #[arg(long, default_value_t = 300)]
@@ -56,7 +64,9 @@ mod tests {
     fn parse_defaults() {
         let cli = Cli::try_parse_from(["interlude"]).expect("default parse");
         assert_eq!(cli.interval_minutes, 30);
+        assert_eq!(cli.initial_interval_minutes, 60);
         assert_eq!(cli.break_seconds, 180);
+        assert_eq!(cli.initial_break_seconds, 300);
         assert_eq!(cli.snooze_base_seconds, 300);
         assert_eq!(cli.snooze_decay, 0.6);
         assert_eq!(cli.snooze_min_seconds, 30);
@@ -74,8 +84,12 @@ mod tests {
             "interlude",
             "--interval-minutes",
             "25",
+            "--initial-interval-minutes",
+            "90",
             "--break-seconds",
             "120",
+            "--initial-break-seconds",
+            "240",
             "--snooze-base-seconds",
             "240",
             "--snooze-decay",
@@ -96,7 +110,9 @@ mod tests {
         .expect("custom parse");
 
         assert_eq!(cli.interval_minutes, 25);
+        assert_eq!(cli.initial_interval_minutes, 90);
         assert_eq!(cli.break_seconds, 120);
+        assert_eq!(cli.initial_break_seconds, 240);
         assert_eq!(cli.snooze_base_seconds, 240);
         assert_eq!(cli.snooze_decay, 0.75);
         assert_eq!(cli.snooze_min_seconds, 45);

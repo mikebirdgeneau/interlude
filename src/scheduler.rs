@@ -13,6 +13,8 @@ pub enum Phase {
 pub struct Config {
     pub interval: Duration,
     pub break_len: Duration,
+    pub initial_interval: Duration,
+    pub initial_break_len: Duration,
     pub snooze_base: Duration,
     pub snooze_decay: f64,
     pub snooze_min: Duration,
@@ -25,6 +27,7 @@ pub struct Scheduler {
     pub deadline: Option<Instant>,
     pub snooze_count: u32,
     pub cfg: Config,
+    pub initial_cycle_done: bool,
     paused_remaining: Option<Duration>,
 }
 
@@ -32,9 +35,10 @@ impl Scheduler {
     pub fn new(cfg: Config) -> Self {
         Self {
             phase: Phase::Working,
-            deadline: Some(Instant::now() + cfg.interval),
+            deadline: Some(Instant::now() + cfg.initial_interval),
             snooze_count: 0,
             cfg,
+            initial_cycle_done: false,
             paused_remaining: None,
         }
     }
@@ -54,6 +58,7 @@ impl Scheduler {
                     Phase::OnBreak => {
                         self.phase = Phase::BreakFinished;
                         self.deadline = None;
+                        self.initial_cycle_done = true;
                     }
                     Phase::Snoozing => {
                         self.phase = Phase::LockedAwaitingAction;
@@ -95,6 +100,7 @@ impl Scheduler {
 
     pub fn finish_and_restart(&mut self) {
         self.phase = Phase::Working;
+        self.initial_cycle_done = true;
         self.deadline = Some(Instant::now() + self.cfg.interval);
         self.snooze_count = 0;
         self.paused_remaining = None;
@@ -110,10 +116,26 @@ impl Scheduler {
     }
 
     pub fn break_duration(&self) -> Duration {
-        let base = self.cfg.break_len.as_secs_f64();
+        let base = self.current_break_len().as_secs_f64();
         let multiplier = 1.0 + (self.snooze_count as f64 * 0.1);
         let dur = (base * multiplier).round().max(base);
         Duration::from_secs(dur as u64)
+    }
+
+    pub fn interval_duration(&self) -> Duration {
+        if self.initial_cycle_done {
+            self.cfg.interval
+        } else {
+            self.cfg.initial_interval
+        }
+    }
+
+    fn current_break_len(&self) -> Duration {
+        if self.initial_cycle_done {
+            self.cfg.break_len
+        } else {
+            self.cfg.initial_break_len
+        }
     }
 
     pub fn handle_session_locked(&mut self) {
@@ -125,7 +147,7 @@ impl Scheduler {
 
     pub fn handle_session_unlocked(&mut self) {
         self.phase = Phase::Working;
-        self.deadline = Some(Instant::now() + self.cfg.interval);
+        self.deadline = Some(Instant::now() + self.interval_duration());
         self.snooze_count = 0;
         self.paused_remaining = None;
     }
@@ -168,9 +190,13 @@ mod tests {
     use super::*;
 
     fn test_cfg() -> Config {
+        let interval = Duration::from_secs(10);
+        let break_len = Duration::from_secs(5);
         Config {
-            interval: Duration::from_secs(10),
-            break_len: Duration::from_secs(5),
+            interval,
+            break_len,
+            initial_interval: interval,
+            initial_break_len: break_len,
             snooze_base: Duration::from_secs(100),
             snooze_decay: 0.5,
             snooze_min: Duration::from_secs(30),
@@ -262,8 +288,24 @@ mod tests {
         sched.handle_session_unlocked();
         assert_eq!(sched.phase, Phase::Working);
         let deadline = sched.deadline.expect("deadline should be set");
-        assert!(deadline >= before + sched.cfg.interval);
+        assert!(deadline >= before + sched.interval_duration());
         assert_eq!(sched.snooze_count, 0);
+    }
+
+    #[test]
+    fn initial_cycle_uses_initial_values() {
+        let mut cfg = test_cfg();
+        cfg.initial_interval = Duration::from_secs(20);
+        cfg.initial_break_len = Duration::from_secs(8);
+        let mut sched = Scheduler::new(cfg);
+        assert_eq!(sched.interval_duration().as_secs(), 20);
+        assert_eq!(sched.break_duration().as_secs(), 8);
+        sched.phase = Phase::OnBreak;
+        sched.deadline = Some(Instant::now() - Duration::from_secs(1));
+        sched.tick();
+        assert!(sched.initial_cycle_done);
+        assert_eq!(sched.interval_duration().as_secs(), 10);
+        assert_eq!(sched.break_duration().as_secs(), 5);
     }
 
     #[test]

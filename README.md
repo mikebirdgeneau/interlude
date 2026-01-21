@@ -15,8 +15,8 @@ It does not lock your session or manage passwords. Your existing screen locker c
 - Replace tools like hyprlock
 
 ## Default Behaviour
-- 30 minutes of work, followed by a short break
-- Breaks last 180 seconds by default
+- First break after 60 minutes; subsequent breaks every 30 minutes
+- First break lasts 300 seconds; subsequent breaks last 180 seconds
 - Snooze starts at 5 minutes and shortens if used repeatedly
 - Each snooze increases the upcoming break length by 10%
 - Keyboard controls:
@@ -42,8 +42,12 @@ Usage: interlude [OPTIONS]
 Options:
       --interval-minutes <INTERVAL_MINUTES>
           Minutes between breaks [default: 30]
+      --initial-interval-minutes <INITIAL_INTERVAL_MINUTES>
+          Minutes before the first break [default: 60]
       --break-seconds <BREAK_SECONDS>
           Break duration in seconds [default: 180]
+      --initial-break-seconds <INITIAL_BREAK_SECONDS>
+          Initial break duration in seconds [default: 300]
       --snooze-base-seconds <SNOOZE_BASE_SECONDS>
           Initial snooze duration in seconds (shrinks each snooze) [default: 300]
       --snooze-decay <SNOOZE_DECAY>
@@ -80,7 +84,9 @@ Interlude includes a NixOS module that runs it as a user service.
             enable = true;
             settings = {
               interval_minutes = 30;
+              initial_interval_minutes = 60;
               break_seconds = 180;
+              initial_break_seconds = 300;
               snooze_base_seconds = 300;
               snooze_decay = 0.6;
               snooze_min_seconds = 30;

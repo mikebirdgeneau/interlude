@@ -56,12 +56,13 @@ pub fn save_scheduler(sched: &Scheduler) -> std::io::Result<()> {
     }
     let remaining = sched.time_left().map(|d| d.as_secs());
     let content = format!(
-        "phase={}\nremaining={}\nsnooze_count={}\nsaved_at={}\n",
+        "phase={}\nremaining={}\nsnooze_count={}\ninitial_done={}\nsaved_at={}\n",
         phase_to_str(sched.phase),
         remaining
             .map(|v| v.to_string())
             .unwrap_or_else(|| "none".to_string()),
         sched.snooze_count,
+        sched.initial_cycle_done,
         now_unix_secs()
     );
     let tmp_path = path.with_extension("tmp");
@@ -77,6 +78,7 @@ pub fn load_scheduler(cfg: &Config) -> Option<Scheduler> {
     let mut phase: Option<Phase> = None;
     let mut remaining: Option<u64> = None;
     let mut snooze_count: Option<u32> = None;
+    let mut initial_done: Option<bool> = None;
     let mut saved_at: Option<u64> = None;
 
     for line in data.lines() {
@@ -91,6 +93,7 @@ pub fn load_scheduler(cfg: &Config) -> Option<Scheduler> {
                 }
             }
             "snooze_count" => snooze_count = value.trim().parse::<u32>().ok(),
+            "initial_done" => initial_done = value.trim().parse::<bool>().ok(),
             "saved_at" => saved_at = value.trim().parse::<u64>().ok(),
             _ => {}
         }
@@ -98,6 +101,7 @@ pub fn load_scheduler(cfg: &Config) -> Option<Scheduler> {
 
     let phase = phase?;
     let snooze_count = snooze_count.unwrap_or(0);
+    let initial_done = initial_done.unwrap_or(true);
     let saved_at = saved_at.unwrap_or(now_unix_secs());
     let elapsed = now_unix_secs().saturating_sub(saved_at);
     let remaining = remaining.map(|r| r.saturating_sub(elapsed));
@@ -105,6 +109,7 @@ pub fn load_scheduler(cfg: &Config) -> Option<Scheduler> {
     let mut sched = Scheduler::new(cfg.clone());
     sched.phase = phase;
     sched.snooze_count = snooze_count;
+    sched.initial_cycle_done = initial_done;
     sched.deadline = match sched.phase {
         Phase::Working => remaining.map(|r| std::time::Instant::now() + Duration::from_secs(r)),
         Phase::Snoozing => remaining.map(|r| std::time::Instant::now() + Duration::from_secs(r)),
